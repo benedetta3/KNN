@@ -37,6 +37,6 @@ max_diff = np.max(diff)
 print("Massima differenza:", max_diff)
 
 if max_diff <= 0.2:
-    print("Distanze compatibili (errore â‰¤ 0.2)")
+    print("Distanze compatibili (errore ≤ 0.2)")
 else:
     print("Distanze NON compatibili (errore > 0.2)")

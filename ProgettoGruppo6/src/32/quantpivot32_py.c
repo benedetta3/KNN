@@ -60,7 +60,7 @@ static int QuantPivot32_init(QuantPivot32Object *self, PyObject *args, PyObject 
 	self->input->nq = -1;			// numero delle query
 	self->input->id_nn = NULL;		// identificativi dei vicini
 	self->input->dist_nn = NULL;	// distanze dai vicini
-	self->input->silent = 0;		// modalità silenziosa
+	self->input->silent = 0;		// modalitÃ  silenziosa
     return 0;
 }
 
@@ -201,7 +201,7 @@ static PyObject* QuantPivot32_predict(QuantPivot32Object *self, PyObject *args, 
 	// Crea un capsule per gestire la deallocazione
 	PyObject* capsule_id = PyCapsule_New(self->input->id_nn, NULL, mm_free_destructor);
 
-	// Associa il capsule all'array così quando l'array viene distrutto,
+	// Associa il capsule all'array cosÃ¬ quando l'array viene distrutto,
 	// la memoria allineata viene liberata
 	PyArray_SetBaseObject(id_nn_array, capsule_id);
 
@@ -214,7 +214,7 @@ static PyObject* QuantPivot32_predict(QuantPivot32Object *self, PyObject *args, 
 	// Crea un capsule per gestire la deallocazione
 	PyObject* capsule_dist = PyCapsule_New(self->input->dist_nn, NULL, mm_free_destructor);
 
-	// Associa il capsule all'array così quando l'array viene distrutto,
+	// Associa il capsule all'array cosÃ¬ quando l'array viene distrutto,
 	// la memoria allineata viene liberata
 	PyArray_SetBaseObject(dist_nn_array, capsule_dist);
 

@@ -9,7 +9,7 @@
 
 #include "common.h"
 
-#include "quantpivot64.c"
+#include "quantpivot32.c"
 
 /*
 *
@@ -56,8 +56,8 @@ MATRIX load_data(char* filename, int *n, int *k) {
 *	come matrice di N righe e M colonne
 * 
 * 	Codifica del file:
-* 	primi 4 byte: numero di righe (N) --> numero intero a 64 bit
-* 	successivi 4 byte: numero di colonne (M) --> numero intero a 64 bit
+* 	primi 4 byte: numero di righe (N) --> numero intero a 32 bit
+* 	successivi 4 byte: numero di colonne (M) --> numero intero a 32 bit
 * 	successivi N*M*4 byte: matrix data in row-major order --> numeri interi o floating-point a precisione singola
 */
 void save_data(char* filename, void* X, int n, int k) {
@@ -82,83 +82,104 @@ void save_data(char* filename, void* X, int n, int k) {
 }
 
 int main(int argc, char** argv) {
-
-	// ================= Parametri di ingresso =================
-	char* dsfilename = "ds.ds2";
-	char* queryfilename = "query.ds2";
-	int h = 2;
-	int k = 3;
-	int x = 2;
-	int silent = 0;
-	// =========================================================
-
-	params* input = malloc(sizeof(params));
-
-	input->DS = load_data(dsfilename, &input->N, &input->D);
-	input->Q = load_data(queryfilename, &input->nq, &input->D);
-	input->id_nn = _mm_malloc(input->nq*input->k*sizeof(int), align);
-	input->dist_nn = _mm_malloc(input->nq*input->k*sizeof(type), align);
-	input->h = h;
-	input->k = k;
-	input->x = x;
-	input->silent = silent;
-
-
-	clock_t t;
-	float time;
-
-	t = omp_get_wtime();
-	// =========================================================
-	fit(input);
-	// =========================================================
-	t = omp_get_wtime() - t;
-	time = ((float)t)/CLOCKS_PER_SEC;
-
-	if(!input->silent)
-		printf("FIT time = %.5f secs\n", time);
-	else
-		printf("%.3f\n", time);
-
-	t = omp_get_wtime();
-	// =========================================================
-	predict(input);
-	// =========================================================
-	t = omp_get_wtime() - t;
-	time = ((float)t)/CLOCKS_PER_SEC;
-
-	if(!input->silent)
-		printf("PREDICT time = %.5f secs\n", time);
-	else
-		printf("%.3f\n", time);
-
-	// Salva il risultato
-	char* outname_id = "out_idnn.ds2";
-	char* outname_k = "out_distnn.ds2";
-	save_data(outname_id, input->id_nn, input->nq, input->k);
-	save_data(outname_k, input->dist_nn, input->nq, input->k);
-
-	if(!input->silent){
-		for(int i=0; i<input->nq; i++){
-			printf("ID NN Q%3i: ( ", i);
-			for(int j=0; j<input->k; j++)
-				printf("%i ", input->id_nn[i*input->k + j]);
-			printf(")\n");
-		}
-		for(int i=0; i<input->nq; i++){
-			printf("Dist NN Q%3i: ( ", i);
-			for(int j=0; j<input->k; j++)
-				printf("%f ", input->dist_nn[i*input->k + j]);
-			printf(")\n");
-		}
-	}
-
-	_mm_free(input->DS);
-	_mm_free(input->Q);
-	_mm_free(input->P);
-	_mm_free(input->index);
-	_mm_free(input->id_nn);
-	_mm_free(input->dist_nn);
-	free(input);
-
-	return 0;
+    // ================= Parametri di ingresso =================
+    char* dsfilename = "ds.ds2";
+    char* queryfilename = "query.ds2";
+    int h = 2;
+    int k = 3;
+    int x = 2;
+    int silent = 0;
+    // =========================================================
+    
+    params* input = malloc(sizeof(params));
+    input->DS = load_data(dsfilename, &input->N, &input->D);
+    input->Q = load_data(queryfilename, &input->nq, &input->D);
+    
+    // ========== AGGIUNGI SOLO QUESTO BLOCCO ==========
+    // Validazione parametri
+    if(h <= 0 || h > input->N) {
+        printf("ERRORE: h=%d non valido (deve essere 1..%d)\n", h, input->N);
+        exit(1);
+    }
+    if(k <= 0 || k > input->N) {
+        printf("ERRORE: k=%d non valido (deve essere 1..%d)\n", k, input->N);
+        exit(1);
+    }
+    if(x <= 0) {
+        printf("ERRORE: x=%d deve essere positivo\n", x);
+        exit(1);
+    }
+    if(x > input->D) {
+        printf("WARNING: x=%d > D=%d, verrÃ  limitato a D\n", x, input->D);
+        x = input->D;
+    }
+    // Inizializza flag per fit
+    input->first_fit_call = false;
+    // =================================================
+    
+    // RESTO DEL CODICE DEL PROF INVARIATO
+    input->id_nn = _mm_malloc(input->nq*k*sizeof(int), align);
+    input->dist_nn = _mm_malloc(input->nq*k*sizeof(type), align);
+    input->h = h;
+    input->k = k;
+    input->x = x;
+    input->silent = silent;
+    
+    clock_t t;
+    float time;
+    
+    t = omp_get_wtime();
+    // =========================================================
+    fit(input);
+    // =========================================================
+    t = omp_get_wtime() - t;
+    time = ((float)t)/CLOCKS_PER_SEC;
+    
+    if(!input->silent)
+        printf("FIT time = %.5f secs\n", time);
+    else
+        printf("%.3f\n", time);
+    
+    t = omp_get_wtime();
+    // =========================================================
+    predict(input);
+    // =========================================================
+    t = omp_get_wtime() - t;
+    time = ((float)t)/CLOCKS_PER_SEC;
+    
+    if(!input->silent)
+        printf("PREDICT time = %.5f secs\n", time);
+    else
+        printf("%.3f\n", time);
+    
+    // Salva il risultato
+    char* outname_id = "out_idnn.ds2";
+    char* outname_k = "out_distnn.ds2";
+    save_data(outname_id, input->id_nn, input->nq, input->k);
+    save_data(outname_k, input->dist_nn, input->nq, input->k);
+    
+    if(!input->silent){
+        for(int i=0; i<input->nq; i++){
+            printf("ID NN Q%3i: ( ", i);
+            for(int j=0; j<input->k; j++)
+                printf("%i ", input->id_nn[i*input->k + j]);
+            printf(")\n");
+        }
+        for(int i=0; i<input->nq; i++){
+            printf("Dist NN Q%3i: ( ", i);
+            for(int j=0; j<input->k; j++)
+                printf("%f ", input->dist_nn[i*input->k + j]);
+            printf(")\n");
+        }
+    }
+    
+    _mm_free(input->DS);
+    _mm_free(input->Q);
+    _mm_free(input->P);
+    _mm_free(input->index);
+    _mm_free(input->id_nn);
+    _mm_free(input->dist_nn);
+    free(input);
+    
+    return 0;
 }

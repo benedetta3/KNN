@@ -1,8 +1,9 @@
 #ifndef QUANTPIVOT_COMMON
 #define QUANTPIVOT_COMMON
+#include <stdbool.h>
 
-#define	type	double
-#define	align	32
+#define	type	float
+#define	align	16
 
 #define	MATRIX		type*
 #define	VECTOR		type*
@@ -21,7 +22,10 @@ typedef struct{
 	int N;						// numero di righe del dataset
 	int D;						// numero di colonne/feature del dataset
 	int nq;						// numero delle query
-	int silent;					// modalità silenziosa
+	int silent;					// modalitÃ  silenziosa
+	MATRIX ds_plus;   // vettori quantizzati positivi del dataset
+    MATRIX ds_minus;  // vettori quantizzati negativi del dataset
+	bool first_fit_call;
 } params;
 
 #endif
