@@ -1,13 +1,90 @@
-GUIDA AL PROGETTO – Architetture Avanzate (Gruppo 6)
-======================================================
+CODICI DA ESEGUIRE NEL TERMINALE DI VISUAL STUDIO CODE
 
-Obiettivo
-----------------------
+------------------------------------------------------------------------------
+
+INSTALLAZIONE VENV E DIPENDENZE:                    
+
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+sudo apt install python3-venv
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install numpy
+python3 setup.py build_ext --inplace
+sudo apt update
+sudo apt install libfftw3-dev libfftw3-doc
+pip install pyfftw
+
+------------------------------------------------------------------------------
+
+EESECUZIONE 32:
+
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+source venv/bin/activate
+pip install -e .
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+rm -rf build/ gruppo6/quantpivot32/*.so src/32/*.o
+python3 setup.py build_ext --inplace
+cd ~/Scrivania/Progetto/Mio
+python3 test.py dataset_2000x256_32.ds2 query_2000x256_32.ds2 16 8 64 32
+python3 compare_results.py
+
+------------------------------------------------------------------------------
+
+EESECUZIONE 64:
+
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+source venv/bin/activate
+pip install -e .
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+rm -rf build/ gruppo6/quantpivot64/*.so src/64/*.o
+python3 setup.py build_ext --inplace
+cd ~/Scrivania/Progetto/Mio
+python3 test.py dataset_2000x256_64.ds2 query_2000x256_64.ds2 16 8 64 64
+python3 compare_results.py
+
+------------------------------------------------------------------------------
+
+EESECUZIONE 64 OMP:
+
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+source venv/bin/activate
+pip install -e .
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+rm -rf build/ gruppo6/quantpivot64omp/*.so src/64omp/*.o
+python3 setup.py build_ext --inplace
+cd ~/Scrivania/Progetto/Mio
+python3 test.py dataset_2000x256_64.ds2 query_2000x256_64.ds2 16 8 64 64
+python3 compare_results.py
+
+------------------------------------------------------------------------------
+
+TEST VALIDITÀ PROGRAMMA SU DATASET GRANDI, DISPARI, NON MULTIPLI DI 4...
+
+cd ~/Scrivania/Progetto/Mio/ProgettoGruppo6
+source venv/bin/activate
+pip install -e .
+cd ~/Scrivania/Progetto/Mio
+python3 test_edge_cases.py
+
+------------------------------------------------------------------------------
+
+CREAZIONE DI DATASET E QUERY DI DIMENSIONI DIFFERENTI
+
+gcc make_ds2.c -O3 -o make_ds2
+./make_ds2 200000 256 DS_200k_256.ds2
+./make_ds2 2000 256 Q_2000_256.ds2
+python3 test.py DS_200k_256.ds2 Q_2000_256.ds2 16 8 64 32
+ 
+===============================================================================
+
+GUIDA AL PROGETTO – Architetture Avanzate (Gruppo 6)
+
 Il progetto implementa l’algoritmo QuantPivot per k-NN: quantizza i vettori in (v+, v-), usa una distanza approssimata
 per ottenere un lower bound, fa pruning dei candidati e infine calcola la distanza euclidea reale solo sui candidati rimasti.
 
 Perché è implementato così (scelte progettuali)
------------------------------------------------
+------------------------------------------------------------------------------
 1) Stessa API e stessa logica in tutte le versioni (32 / 64 / 64omp)
    - Questo riduce bug, facilita il confronto e rende i risultati riproducibili.
 2) Separazione tra:
@@ -19,7 +96,7 @@ Perché è implementato così (scelte progettuali)
    - per questo esistono kernel ASM (SSE/AVX) e, in 64omp, parallelismo sui loop principali (OpenMP).
 
 Struttura delle directory
-------------------------
+------------------------------------------------------------------------------
 Nel progetto trovate tipicamente:
 
 ProgettoGruppo6/
@@ -35,7 +112,7 @@ ProgettoGruppo6/
 Le 3 directory src/* hanno nomi di file simili (stessa “intestazione”), ma implementano tipi e ottimizzazioni diverse.
 
 Differenze tra src/32, src/64, src/64omp
-----------------------------------------
+------------------------------------------------------------------------------
 1) src/32  (float + SSE)
    - Dati: float (32 bit)
    - Vettorizzazione: SSE (registri XMM, 4 float per volta)
@@ -56,7 +133,7 @@ Nota: i nomi dei file sono simili per uniformità (e per rimanere aderenti al te
 - in 64omp cambiano i loop (parallelizzati) e i flag di compilazione (OpenMP)
 
 API Python (cosa vede chi usa il progetto)
-------------------------------------------
+------------------------------------------------------------------------------
 Il progetto esporta 3 classi “gemelle”, una per directory:
 
 - QuantPivot32
@@ -64,7 +141,7 @@ Il progetto esporta 3 classi “gemelle”, una per directory:
 - QuantPivot64OMP
 
 Uso tipico:
------------
+
 qp = QuantPivotXX(...)
 qp.fit(DS, h, x, ...)    # costruisce pivot, quantizza, costruisce indice
 ids, dists = qp.query(Q, k, ...)   # risponde alle query con k-NN
@@ -77,7 +154,7 @@ Dove:
 - x  è il parametro di quantizzazione (soglia/numero selezioni non-zero)
 
 Che cosa fa ogni componente (alto livello)
-------------------------------------------
+
 1) Wrapper Python (file *_py.c)
    - Converte gli array numpy -> puntatori C
    - Controlla parametri e chiama le funzioni C
@@ -124,7 +201,7 @@ Che cosa fa ogni componente (alto livello)
    - Servono per test locali, confronto C vs ASM, e misurazioni tempo
 
 Differenze tra file con “stessa intestazione” (esempi)
-------------------------------------------------------
+------------------------------------------------------------------------------
 - quantpivot32.c vs quantpivot64.c:
   * stesso algoritmo, ma float vs double
   * cambiamento di tipi e, spesso, step SIMD (4 float vs 4 double per AVX)
@@ -138,7 +215,7 @@ Differenze tra file con “stessa intestazione” (esempi)
   * la differenza principale è nel C: parallelizzazione OpenMP sui loop esterni
 
 Note pratiche per chi clona e compila
--------------------------------------
+------------------------------------------------------------------------------
 1) Prima di zippare o pushare:
    - eseguire ./clean
    - non includere build/, *.o, *.so, __pycache__/ (evita problemi a chi compila)
@@ -152,8 +229,7 @@ Note pratiche per chi clona e compila
      fit(): pivot/alloc/quantizzazione/indice
      query(): lower bound/candidati/kNN finale
 
-Glossario rapido
-----------------
+Glossario rapido:
 - P: matrice dei pivot (h x D)
 - v+, v-: vettori quantizzati non-negativi
 - idx[v,j]: valore d̃ tra punto v e pivot j (indice)

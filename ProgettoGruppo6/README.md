@@ -5,5 +5,5 @@
 
 ## 👥 Componenti del Gruppo
 - **Benedetta Calonico** - mat. 276653 - clnbdt03r60c349m@studenti.unical.it
-- **Francesco Pio Ceraudo** - mat. XXXXXX - crdfnc03l05d122j@studenti.unical.it
+- **Francesco Pio Ceraudo** - mat. 276643 - crdfnc03l05d122j@studenti.unical.it
 - **Rosario Chiappetta** - mat. XXXXXX - chprsr03h28d086a@studenti.unical.it
