@@ -2,7 +2,7 @@
 
 #include <Python.h>
 #include <numpy/arrayobject.h>
-#include <xmmintrin.h>
+#include <immintrin.h>
 
 #include "common.h"
 
@@ -10,14 +10,11 @@
 
 // Struttura per l'oggetto QuantPivot
 typedef struct {
-	// Espande a campi obbligatori che ogni oggetto Python deve avere
 	PyObject_HEAD
-	// Parametri
 	params* input;
-	// Salva i PyArrayObject
-	PyArrayObject* DS_array;	// riferimento all'array dataset
-	PyArrayObject* Q_array;		// riferimento all'array query
-} QuantPivot64ompObject;
+	PyArrayObject* DS_array;
+	PyArrayObject* Q_array;
+} QuantPivot64OMPObject;
 
 static void mm_free_destructor(PyObject* capsule) {
     void* ptr = PyCapsule_GetPointer(capsule, NULL);
@@ -26,14 +23,16 @@ static void mm_free_destructor(PyObject* capsule) {
     }
 }
 
-// Deallocazione (pulizia memoria quando l'oggetto viene distrutto)
-static void QuantPivot64omp_dealloc(QuantPivot64ompObject *self) {
-	// Libera memoria allocata
+// Deallocazione
+static void QuantPivot64OMP_dealloc(QuantPivot64OMPObject *self) {
 	if (self->input->P != NULL)
 		_mm_free(self->input->P);
 	if (self->input->index != NULL)
 		_mm_free(self->input->index);
-	// Decrementa riferimenti agli array NumPy
+
+    if (self->input->ds_plus != NULL) _mm_free(self->input->ds_plus);
+    if (self->input->ds_minus != NULL) _mm_free(self->input->ds_minus);
+
 	Py_XDECREF(self->DS_array);
 	Py_XDECREF(self->Q_array);
 
@@ -42,30 +41,39 @@ static void QuantPivot64omp_dealloc(QuantPivot64ompObject *self) {
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-// Costruttore
-static int QuantPivot64omp_init(QuantPivot64ompObject *self, PyObject *args, PyObject *kwargs) {
-	// Inizializzazione parametri
-	self->DS_array = NULL;
-	self->Q_array = NULL;
-	self->input = malloc(sizeof(params));
-	self->input->DS = NULL; 		// dataset
-	self->input->P = NULL;			// vettore contenente gli indici dei pivot
-	self->input->h = -1;			// numero di pivot
-	self->input->k = -1;			// numero di vicini
-	self->input->x = -1;			// parametro x per la quantizzazione
-	self->input->N = -1;			// numero di righe del dataset
-	self->input->D = -1;			// numero di colonne/feature del dataset
-	self->input->index = NULL;		// indice
-	self->input->Q = NULL;			// query
-	self->input->nq = -1;			// numero delle query
-	self->input->id_nn = NULL;		// identificativi dei vicini
-	self->input->dist_nn = NULL;	// distanze dai vicini
-	self->input->silent = 0;		// modalità silenziosa
+static int QuantPivot64OMP_init(QuantPivot64OMPObject *self, PyObject *args, PyObject *kwargs) {
+    self->DS_array = NULL;
+    self->Q_array = NULL;
+
+    self->input = (params*)calloc(1, sizeof(params));
+    if (!self->input) {
+        PyErr_NoMemory();
+        return -1;
+    }
+
+    self->input->DS = NULL;
+    self->input->P = NULL;
+    self->input->h = -1;
+    self->input->k = -1;
+    self->input->x = -1;
+    self->input->N = -1;
+    self->input->D = -1;
+    self->input->index = NULL;
+    self->input->Q = NULL;
+    self->input->nq = -1;
+    self->input->id_nn = NULL;
+    self->input->dist_nn = NULL;
+    self->input->silent = 0;
+
+    self->input->ds_plus = NULL;
+    self->input->ds_minus = NULL;
+    self->input->first_fit_call = false;
+
     return 0;
 }
 
 // Metodo fit
-static PyObject* QuantPivot64omp_fit(QuantPivot64ompObject *self, PyObject *args, PyObject *kwargs) {
+static PyObject* QuantPivot64OMP_fit(QuantPivot64OMPObject *self, PyObject *args, PyObject *kwargs) {
 	PyArrayObject *ds_array;
 
 	int h, x, silent = 1;
@@ -78,19 +86,16 @@ static PyObject* QuantPivot64omp_fit(QuantPivot64ompObject *self, PyObject *args
 		return NULL;
 	}
 
-	// Verifica che sia un array NumPy valido
 	if (PyArray_NDIM(ds_array) != 2) {
 		PyErr_SetString(PyExc_ValueError, "Data must be a 2D array");
 		return NULL;
 	}
 
-	// Verifica che sia float64
 	if (PyArray_TYPE(ds_array) != NPY_FLOAT64) {
 		PyErr_SetString(PyExc_TypeError, "Data must be float64");
 		return NULL;
 	}
 
-	// Verifica che siano array contigui
 	type* dataset = (type*)(PyArrayObject*)PyArray_DATA(ds_array);
 
 	uintptr_t addr = (uintptr_t)dataset;
@@ -101,37 +106,39 @@ static PyObject* QuantPivot64omp_fit(QuantPivot64ompObject *self, PyObject *args
 		return NULL;
 	}
 
-	// Estrai dimensioni
 	self->input->N = (int)PyArray_DIM(ds_array, 0);
 	self->input->D = (int)PyArray_DIM(ds_array, 1);
 
-	// Estrae il numero di pivot
+	if (h <= 0 || h > self->input->N) {
+		PyErr_SetString(PyExc_ValueError, "n_pivots (h) must be in [1..N]");
+		return NULL;
+	}
+	if (x <= 0 || x > self->input->D) {
+		PyErr_SetString(PyExc_ValueError, "quant_level (x) must be in [1..D]");
+		return NULL;
+	}
+
 	self->input->h = h;
-
-	// Estrae il livello di quantizzazione
 	self->input->x = x;
-
-	// Estrae il flag silent
 	self->input->silent = silent;
 
-	// Salva riferimento all'array con INCREF
 	Py_INCREF(ds_array);
 	Py_XDECREF(self->DS_array);
 	self->DS_array = ds_array;
 
 	self->input->DS = dataset;
 
-	// ========================================= //
+	// Release GIL per permettere parallelizzazione OpenMP
+	Py_BEGIN_ALLOW_THREADS
 	fit(self->input);
-	// ========================================= //
+	Py_END_ALLOW_THREADS
 
-	// Restituisci self per permettere method chaining
 	Py_INCREF(self);
 	return (PyObject *)self;
 }
 
 // Metodo predict
-static PyObject* QuantPivot64omp_predict(QuantPivot64ompObject *self, PyObject *args, PyObject *kwargs) {
+static PyObject* QuantPivot64OMP_predict(QuantPivot64OMPObject *self, PyObject *args, PyObject *kwargs) {
 	PyArrayObject* query_array;
 	int k, silent = 0;
 
@@ -142,28 +149,23 @@ static PyObject* QuantPivot64omp_predict(QuantPivot64ompObject *self, PyObject *
 									&k, &silent))
 		return NULL;
 
-	// Verifica che fit sia stato chiamato
 	if (self->input->index == NULL) {
 		PyErr_SetString(PyExc_RuntimeError,
 					"Model not fitted, call fit() before predict()");
 		return NULL;
 	}
 
-	// Verifica che Q sia un array NumPy valido
 	if (PyArray_NDIM(query_array) != 2) {
 		PyErr_SetString(PyExc_ValueError, "Data must be a 2D array");
 		return NULL;
 	}
 
-	// Verifica che sia float64
 	if (PyArray_TYPE(query_array) != NPY_FLOAT64) {
 		PyErr_SetString(PyExc_TypeError, "Data must be float64");
 		return NULL;
 	}
 
-	// Verifica che siano array contigui
 	type* query = (type*)(PyArrayObject*)PyArray_DATA(query_array);
-
 	uintptr_t addr = (uintptr_t)query;
 	int is_aligned = (addr % align == 0);
 
@@ -172,71 +174,65 @@ static PyObject* QuantPivot64omp_predict(QuantPivot64ompObject *self, PyObject *
 		return NULL;
 	}
 
-	// Estrai dimensioni
+	self->input->Q = query;
+
 	self->input->nq = (int)PyArray_DIM(query_array, 0);
 
-	// Estrae il numero di K vicini
-	self->input->k = k;
+	int qD = (int)PyArray_DIM(query_array, 1);
+	if (qD != self->input->D) {
+		PyErr_SetString(PyExc_ValueError, "Query dimensionality must match dataset D");
+		return NULL;
+	}
 
-	// Estrae il flag silent
+	if (k <= 0 || k > self->input->N) {
+		PyErr_SetString(PyExc_ValueError, "k must be in [1..N]");
+		return NULL;
+	}
+
+	self->input->k = k;
 	self->input->silent = silent;
 
 	self->input->id_nn = (int*) _mm_malloc(self->input->nq * self->input->k * sizeof(int), align);
 	self->input->dist_nn = (type*) _mm_malloc(self->input->nq * self->input->k * sizeof(type), align);
 
-	// ========================================= //
+	// Release GIL per permettere parallelizzazione OpenMP
+	Py_BEGIN_ALLOW_THREADS
 	predict(self->input);
-	// ========================================= //
+	Py_END_ALLOW_THREADS
 
 	npy_intp dims[2] = {self->input->nq, self->input->k};
 
-
 	PyArrayObject* id_nn_array = (PyArrayObject*)PyArray_SimpleNewFromData(
-		2,				// ndim
-		dims,			// shape
-		NPY_INT32,		// dtype
-		self->input->id_nn		// data pointer (usa la memoria allineata)
+		2, dims, NPY_INT32, self->input->id_nn
 	);
-	// Crea un capsule per gestire la deallocazione
 	PyObject* capsule_id = PyCapsule_New(self->input->id_nn, NULL, mm_free_destructor);
-
-	// Associa il capsule all'array così quando l'array viene distrutto,
-	// la memoria allineata viene liberata
 	PyArray_SetBaseObject(id_nn_array, capsule_id);
 
 	PyArrayObject* dist_nn_array = (PyArrayObject*)PyArray_SimpleNewFromData(
-		2,				// ndim
-		dims,			// shape
-		NPY_FLOAT64,	// dtype
-		self->input->dist_nn	// data pointer (usa la memoria allineata)
+		2, dims, NPY_FLOAT64, self->input->dist_nn
 	);
-	// Crea un capsule per gestire la deallocazione
 	PyObject* capsule_dist = PyCapsule_New(self->input->dist_nn, NULL, mm_free_destructor);
-
-	// Associa il capsule all'array così quando l'array viene distrutto,
-	// la memoria allineata viene liberata
 	PyArray_SetBaseObject(dist_nn_array, capsule_dist);
 
-	// Restituisce una TUPLA con (ids, distances)
 	PyObject* result = PyTuple_Pack(2,
 									(PyObject*)id_nn_array,
 									(PyObject*)dist_nn_array);
 
-	Py_DECREF(id_nn_array);   // PyTuple_Pack ha fatto INCREF
+	Py_DECREF(id_nn_array);
 	Py_DECREF(dist_nn_array);
 
     return result;
 }
 
 // Tabella dei metodi
-static PyMethodDef QuantPivot64omp_methods[] = {
+static PyMethodDef QuantPivot64OMP_methods[] = {
 	{
 		"fit",
-		(PyCFunction)QuantPivot64omp_fit,
+		(PyCFunction)QuantPivot64OMP_fit,
 		METH_VARARGS | METH_KEYWORDS,
-		"Build the index using data\n\n"
+		"Build the index using data (OpenMP parallelized)\n\n"
 		"Parameters:\n"
-		"  data: numpy array of shape (N, D)\n"
+		"  data: numpy array of shape (N, D), dtype=float64\n"
 		"  n_pivots: number of pivots\n"
 		"  x: quantization level\n"
 		"  s: silent (default=False)\n"
@@ -246,64 +242,60 @@ static PyMethodDef QuantPivot64omp_methods[] = {
 	},
 	{
 		"predict",
-		(PyCFunction)QuantPivot64omp_predict,
+		(PyCFunction)QuantPivot64OMP_predict,
 		METH_VARARGS | METH_KEYWORDS,
-		"Query the index\n\n"
+		"Query the index (OpenMP parallelized)\n\n"
 		"Parameters:\n"
-		"  query: numpy array of shape (nq, D)\n"
+		"  query: numpy array of shape (nq, D), dtype=float64\n"
 		"  k: number of neighbors\n"
 		"  s: silent (default=False)\n"
 		"\n"
 		"Returns:\n"
-		"  numpy array of indices"
+		"  tuple (indices, distances)"
 	},
 	{NULL, NULL, 0, NULL}
 };
 
 // Definizione del tipo Python
-static PyTypeObject QuantPivot64ompType = {
+static PyTypeObject QuantPivot64OMPType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "gruppoX.quantpivot64omp.QuantPivot",
-	.tp_doc = "QuantPivot 64-bit indexing and querying with OpenMP",
-	.tp_basicsize = sizeof(QuantPivot64ompObject),
+	.tp_name = "gruppo6.quantpivot64omp.QuantPivot",
+	.tp_doc = "QuantPivot 64-bit indexing and querying with AVX + OpenMP",
+	.tp_basicsize = sizeof(QuantPivot64OMPObject),
 	.tp_itemsize = 0,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 	.tp_new = PyType_GenericNew,
-	.tp_init = (initproc)QuantPivot64omp_init,
-	.tp_dealloc = (destructor)QuantPivot64omp_dealloc,
-	.tp_methods = QuantPivot64omp_methods,
+	.tp_init = (initproc)QuantPivot64OMP_init,
+	.tp_dealloc = (destructor)QuantPivot64OMP_dealloc,
+	.tp_methods = QuantPivot64OMP_methods,
 };
 
 
 static struct PyModuleDef quantpivot64omp_module = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "_quantpivot64omp",        // Nome del modulo C
-    .m_doc = "Quantized Pivot Indexing and Querying (64bit with omp)",  // Docstring
-    .m_size = -1,                     // -1 significa che il modulo non mantiene stato
+    .m_name = "_quantpivot64omp",
+    .m_doc = "Quantized Pivot Indexing and Querying (64bit AVX + OpenMP)",
+    .m_size = -1,
 };
 
 // Inizializzazione del modulo
 PyMODINIT_FUNC PyInit__quantpivot64omp(void) {
 	PyObject *m;
 
-	// Prepara il tipo
-	if (PyType_Ready(&QuantPivot64ompType) < 0)
+	if (PyType_Ready(&QuantPivot64OMPType) < 0)
 		return NULL;
 
-	// Crea il modulo
 	m = PyModule_Create(&quantpivot64omp_module);
 	if (m == NULL)
 		return NULL;
 
-	// Aggiungi la classe al modulo
-	Py_INCREF(&QuantPivot64ompType);
-	if (PyModule_AddObject(m, "QuantPivot", (PyObject *)&QuantPivot64ompType) < 0) {
-		Py_DECREF(&QuantPivot64ompType);
+	Py_INCREF(&QuantPivot64OMPType);
+	if (PyModule_AddObject(m, "QuantPivot", (PyObject *)&QuantPivot64OMPType) < 0) {
+		Py_DECREF(&QuantPivot64OMPType);
 		Py_DECREF(m);
 		return NULL;
 	}
 
-	// Inizializza NumPy
 	import_array();
 
 	return m;

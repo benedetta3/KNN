@@ -2,7 +2,7 @@
 
 #include <Python.h>
 #include <numpy/arrayobject.h>
-#include <xmmintrin.h>
+#include <immintrin.h>
 
 #include "common.h"
 
@@ -33,6 +33,10 @@ static void QuantPivot64_dealloc(QuantPivot64Object *self) {
 		_mm_free(self->input->P);
 	if (self->input->index != NULL)
 		_mm_free(self->input->index);
+
+    if (self->input->ds_plus != NULL) _mm_free(self->input->ds_plus);
+    if (self->input->ds_minus != NULL) _mm_free(self->input->ds_minus);
+
 	// Decrementa riferimenti agli array NumPy
 	Py_XDECREF(self->DS_array);
 	Py_XDECREF(self->Q_array);
@@ -42,25 +46,35 @@ static void QuantPivot64_dealloc(QuantPivot64Object *self) {
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-// Costruttore
 static int QuantPivot64_init(QuantPivot64Object *self, PyObject *args, PyObject *kwargs) {
-	// Inizializzazione parametri
-	self->DS_array = NULL;
-	self->Q_array = NULL;
-	self->input = malloc(sizeof(params));
-	self->input->DS = NULL; 		// dataset
-	self->input->P = NULL;			// vettore contenente gli indici dei pivot
-	self->input->h = -1;			// numero di pivot
-	self->input->k = -1;			// numero di vicini
-	self->input->x = -1;			// parametro x per la quantizzazione
-	self->input->N = -1;			// numero di righe del dataset
-	self->input->D = -1;			// numero di colonne/feature del dataset
-	self->input->index = NULL;		// indice
-	self->input->Q = NULL;			// query
-	self->input->nq = -1;			// numero delle query
-	self->input->id_nn = NULL;		// identificativi dei vicini
-	self->input->dist_nn = NULL;	// distanze dai vicini
-	self->input->silent = 0;		// modalità silenziosa
+    self->DS_array = NULL;
+    self->Q_array = NULL;
+
+    self->input = (params*)calloc(1, sizeof(params));
+    if (!self->input) {
+        PyErr_NoMemory();
+        return -1;
+    }
+
+    self->input->DS = NULL;
+    self->input->P = NULL;
+    self->input->h = -1;
+    self->input->k = -1;
+    self->input->x = -1;
+    self->input->N = -1;
+    self->input->D = -1;
+    self->input->index = NULL;
+    self->input->Q = NULL;
+    self->input->nq = -1;
+    self->input->id_nn = NULL;
+    self->input->dist_nn = NULL;
+    self->input->silent = 0;
+
+    //i nuovi campi
+    self->input->ds_plus = NULL;
+    self->input->ds_minus = NULL;
+    self->input->first_fit_call = false;
+
     return 0;
 }
 
@@ -104,6 +118,16 @@ static PyObject* QuantPivot64_fit(QuantPivot64Object *self, PyObject *args, PyOb
 	// Estrai dimensioni
 	self->input->N = (int)PyArray_DIM(ds_array, 0);
 	self->input->D = (int)PyArray_DIM(ds_array, 1);
+
+	if (h <= 0 || h > self->input->N) {
+		PyErr_SetString(PyExc_ValueError, "n_pivots (h) must be in [1..N]");
+		return NULL;
+	}
+	if (x <= 0 || x > self->input->D) {
+		PyErr_SetString(PyExc_ValueError, "quant_level (x) must be in [1..D]");
+		return NULL;
+	}
+
 
 	// Estrae il numero di pivot
 	self->input->h = h;
@@ -163,7 +187,6 @@ static PyObject* QuantPivot64_predict(QuantPivot64Object *self, PyObject *args, 
 
 	// Verifica che siano array contigui
 	type* query = (type*)(PyArrayObject*)PyArray_DATA(query_array);
-
 	uintptr_t addr = (uintptr_t)query;
 	int is_aligned = (addr % align == 0);
 
@@ -172,8 +195,22 @@ static PyObject* QuantPivot64_predict(QuantPivot64Object *self, PyObject *args, 
 		return NULL;
 	}
 
+	self->input->Q = query;
+
 	// Estrai dimensioni
 	self->input->nq = (int)PyArray_DIM(query_array, 0);
+
+	int qD = (int)PyArray_DIM(query_array, 1);
+	if (qD != self->input->D) {
+		PyErr_SetString(PyExc_ValueError, "Query dimensionality must match dataset D");
+		return NULL;
+	}
+
+	if (k <= 0 || k > self->input->N) {
+		PyErr_SetString(PyExc_ValueError, "k must be in [1..N]");
+		return NULL;
+	}
+
 
 	// Estrae il numero di K vicini
 	self->input->k = k;
@@ -207,7 +244,7 @@ static PyObject* QuantPivot64_predict(QuantPivot64Object *self, PyObject *args, 
 	PyArrayObject* dist_nn_array = (PyArrayObject*)PyArray_SimpleNewFromData(
 		2,				// ndim
 		dims,			// shape
-		NPY_FLOAT64,	// dtype
+		NPY_FLOAT64,	// dtype (CAMBIATO DA FLOAT32)
 		self->input->dist_nn	// data pointer (usa la memoria allineata)
 	);
 	// Crea un capsule per gestire la deallocazione
@@ -236,7 +273,7 @@ static PyMethodDef QuantPivot64_methods[] = {
 		METH_VARARGS | METH_KEYWORDS,
 		"Build the index using data\n\n"
 		"Parameters:\n"
-		"  data: numpy array of shape (N, D)\n"
+		"  data: numpy array of shape (N, D), dtype=float64\n"
 		"  n_pivots: number of pivots\n"
 		"  x: quantization level\n"
 		"  s: silent (default=False)\n"
@@ -250,12 +287,12 @@ static PyMethodDef QuantPivot64_methods[] = {
 		METH_VARARGS | METH_KEYWORDS,
 		"Query the index\n\n"
 		"Parameters:\n"
-		"  query: numpy array of shape (nq, D)\n"
+		"  query: numpy array of shape (nq, D), dtype=float64\n"
 		"  k: number of neighbors\n"
 		"  s: silent (default=False)\n"
 		"\n"
 		"Returns:\n"
-		"  numpy array of indices"
+		"  tuple (indices, distances)"
 	},
 	{NULL, NULL, 0, NULL}
 };
@@ -263,8 +300,8 @@ static PyMethodDef QuantPivot64_methods[] = {
 // Definizione del tipo Python
 static PyTypeObject QuantPivot64Type = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "gruppoX.quantpivot64.QuantPivot",
-	.tp_doc = "QuantPivot 64-bit indexing and querying",
+	.tp_name = "gruppo6.quantpivot64.QuantPivot",
+	.tp_doc = "QuantPivot 64-bit indexing and querying with AVX",
 	.tp_basicsize = sizeof(QuantPivot64Object),
 	.tp_itemsize = 0,
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
@@ -278,8 +315,8 @@ static PyTypeObject QuantPivot64Type = {
 static struct PyModuleDef quantpivot64_module = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_quantpivot64",        // Nome del modulo C
-    .m_doc = "Quantized Pivot Indexing and Querying (64bit)",  // Docstring
-    .m_size = -1,                     // -1 significa che il modulo non mantiene stato
+    .m_doc = "Quantized Pivot Indexing and Querying (64bit AVX)",
+    .m_size = -1,
 };
 
 // Inizializzazione del modulo
