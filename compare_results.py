@@ -2,6 +2,7 @@ import numpy as np
 import struct
 import os
 import glob
+import argparse
 
 def must_exist(path):
     if not os.path.exists(path):
@@ -109,12 +110,37 @@ def compare_variant(label, ref_bits, out_bits,
 
     return ids_ok, dist_ok
 
+import argparse
+
 if __name__ == "__main__":
-    # 32: ref 32 vs out 32
-    compare_variant("32", ref_bits="32", out_bits="32")
+    parser = argparse.ArgumentParser(description="Confronta i risultati con la ground truth del prof.")
+    parser.add_argument(
+        "--t", required=True, choices=["32", "64", "64omp"],
+        help="Variante da confrontare (deve corrispondere a quella che hai appena runnato)."
+    )
+    parser.add_argument("--N", type=int, default=2000)
+    parser.add_argument("--D", type=int, default=256)
+    parser.add_argument("--nq", type=int, default=2000)
+    parser.add_argument("--k", type=int, default=8)
+    parser.add_argument("--x", type=int, default=64)
+    parser.add_argument("--dist_tol", type=float, default=0.2)
+    parser.add_argument("--show_first", type=int, default=10)
 
-    # 64: ref 64 vs out 64
-    compare_variant("64", ref_bits="64", out_bits="64")
+    args = parser.parse_args()
 
-    # 64omp: usa sempre gli stessi file del 64 (ref 64 vs out 64)
-    compare_variant("64omp", ref_bits="64", out_bits="64")
+    # mapping: quali file di riferimento e output usare
+    if args.t == "32":
+        ref_bits, out_bits = "32", "32"
+    elif args.t == "64":
+        ref_bits, out_bits = "64", "64"
+    else:  # "64omp"
+        ref_bits, out_bits = "64", "64"  # i file sono gli stessi del 64
+
+    compare_variant(
+        label=args.t,
+        ref_bits=ref_bits,
+        out_bits=out_bits,
+        N=args.N, D=args.D, nq=args.nq, k=args.k, x=args.x,
+        dist_tol=args.dist_tol,
+        show_first=args.show_first
+    )
