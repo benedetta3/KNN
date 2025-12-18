@@ -33,9 +33,6 @@ approx_distance_asm:
     test r8d, r8d
     jz .return_zero
 
-    ; ----------------------------------------
-    ; Loop principale: 16 float/iterazione
-    ; ----------------------------------------
     mov eax, r8d
     shr eax, 4              ; eax = D/16
     jz .check8
@@ -144,9 +141,6 @@ approx_distance_asm:
     dec eax
     jnz .main_loop16
 
-; ----------------------------------------
-; Remainder: 8 float
-; ----------------------------------------
 .check8:
     mov eax, r8d
     shr eax, 3
@@ -201,9 +195,6 @@ approx_distance_asm:
     add rdx, 32
     add rcx, 32
 
-; ----------------------------------------
-; Remainder: 4 float
-; ----------------------------------------
 .check4:
     mov eax, r8d
     shr eax, 2
@@ -237,9 +228,6 @@ approx_distance_asm:
     add rdx, 16
     add rcx, 16
 
-; ----------------------------------------
-; Remainder: 1-3 float
-; ----------------------------------------
 .check1:
     mov eax, r8d
     and eax, 3
@@ -275,9 +263,6 @@ approx_distance_asm:
     dec eax
     jnz .remainder_loop
 
-; ============================================================
-; RIDUZIONE ORIZZONTALE
-; ============================================================
 .reduce_all:
     ; sum_pp -> xmm0
     movaps xmm8, xmm0
@@ -320,18 +305,6 @@ approx_distance_asm:
     ret
 
 
-; ============================================================
-; euclidean_distance_asm - VERSIONE PRODUCTION READY
-;   RDI = v
-;   RSI = w
-;   EDX = D
-;
-; OTTIMIZZAZIONI:
-;   - Unrolling x4 (16 float/iterazione)
-;   - MOVUPS per sicurezza
-;   - Prefetching
-;   - Sqrt finale ottimizzata
-; ============================================================
 
 euclidean_distance_asm:
     xorps xmm0, xmm0        ; sum_sq = 0
@@ -340,9 +313,6 @@ euclidean_distance_asm:
     test edx, edx
     jz .return_zero
 
-    ; ----------------------------------------
-    ; Loop principale: 16 float/iterazione
-    ; ----------------------------------------
     mov eax, edx
     shr eax, 4              ; eax = D/16
     jz .check8
@@ -385,9 +355,6 @@ euclidean_distance_asm:
     dec eax
     jnz .main_loop16
 
-; ----------------------------------------
-; Remainder: 8 float
-; ----------------------------------------
 .check8:
     mov eax, edx
     shr eax, 3
@@ -410,9 +377,6 @@ euclidean_distance_asm:
     add rdi, 32
     add rsi, 32
 
-; ----------------------------------------
-; Remainder: 4 float
-; ----------------------------------------
 .check4:
     mov eax, edx
     shr eax, 2
@@ -429,9 +393,6 @@ euclidean_distance_asm:
     add rdi, 16
     add rsi, 16
 
-; ----------------------------------------
-; Remainder: 1-3 float
-; ----------------------------------------
 .check1:
     mov eax, edx
     and eax, 3
@@ -450,9 +411,6 @@ euclidean_distance_asm:
     dec eax
     jnz .remainder_loop
 
-; ============================================================
-; RIDUZIONE E SQRT
-; ============================================================
 .reduce:
     ; Riduzione orizzontale
     movaps xmm1, xmm0
@@ -470,14 +428,6 @@ euclidean_distance_asm:
     ret
 
 
-; ============================================================
-; compute_lower_bound_asm - VERSIONE PRODUCTION READY
-;   RDI = idx_v (array di h float)
-;   RSI = qpivot (array di h float)
-;   EDX = h
-;
-; Calcola: LB = max_j |idx_v[j] - qpivot[j]|
-; ============================================================
 
 compute_lower_bound_asm:
     ; Test edge case
@@ -490,10 +440,6 @@ compute_lower_bound_asm:
     shufps xmm7, xmm7, 0    ; [mask, mask, mask, mask]
 
     xorps xmm0, xmm0        ; max_LB = 0
-
-    ; ----------------------------------------
-    ; Loop principale: 4 float alla volta
-    ; ----------------------------------------
     mov eax, edx
     shr eax, 2              ; eax = h/4
     jz .check1
@@ -511,9 +457,6 @@ compute_lower_bound_asm:
     dec eax
     jnz .main_loop4
 
-; ----------------------------------------
-; Remainder: 1-3 elementi
-; ----------------------------------------
 .check1:
     mov eax, edx
     and eax, 3
@@ -531,10 +474,6 @@ compute_lower_bound_asm:
 
     dec eax
     jnz .remainder_loop
-
-; ============================================================
-; RIDUZIONE ORIZZONTALE (trova max)
-; ============================================================
 .reduce:
     movaps xmm1, xmm0
     shufps xmm1, xmm1, 0x4E

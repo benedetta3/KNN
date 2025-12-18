@@ -8,15 +8,11 @@
 
 #include "quantpivot64.c"
 
-// Struttura per l'oggetto QuantPivot
 typedef struct {
-	// Espande a campi obbligatori che ogni oggetto Python deve avere
 	PyObject_HEAD
-	// Parametri
 	params* input;
-	// Salva i PyArrayObject
-	PyArrayObject* DS_array;	// riferimento all'array dataset
-	PyArrayObject* Q_array;		// riferimento all'array query
+	PyArrayObject* DS_array;	
+	PyArrayObject* Q_array;		
 } QuantPivot64Object;
 
 static void mm_free_destructor(PyObject* capsule) {
@@ -26,9 +22,9 @@ static void mm_free_destructor(PyObject* capsule) {
     }
 }
 
-// Deallocazione (pulizia memoria quando l'oggetto viene distrutto)
+
 static void QuantPivot64_dealloc(QuantPivot64Object *self) {
-	// Libera memoria allocata
+	// Liberiamo memoria allocata
 	if (self->input->P != NULL)
 		_mm_free(self->input->P);
 	if (self->input->index != NULL)
@@ -37,11 +33,11 @@ static void QuantPivot64_dealloc(QuantPivot64Object *self) {
     if (self->input->ds_plus != NULL) _mm_free(self->input->ds_plus);
     if (self->input->ds_minus != NULL) _mm_free(self->input->ds_minus);
     
-    // Libera buffer allineati DS e Q (allocati internamente)
+    // Liberiamo buffer allineati DS e Q (allocati internamente)
     if (self->input->DS != NULL) _mm_free(self->input->DS);
     if (self->input->Q != NULL) _mm_free(self->input->Q);
 
-	// Decrementa riferimenti agli array NumPy
+	// Decrementiamo riferimenti agli array NumPy
 	Py_XDECREF(self->DS_array);
 	Py_XDECREF(self->Q_array);
 
@@ -74,7 +70,6 @@ static int QuantPivot64_init(QuantPivot64Object *self, PyObject *args, PyObject 
     self->input->dist_nn = NULL;
     self->input->silent = 0;
 
-    //i nuovi campi
     self->input->ds_plus = NULL;
     self->input->ds_minus = NULL;
     self->input->first_fit_call = false;
@@ -96,23 +91,23 @@ static PyObject* QuantPivot64_fit(QuantPivot64Object *self, PyObject *args, PyOb
 		return NULL;
 	}
 
-	// Verifica che sia un array NumPy valido
+	// Verifichiamo che sia un array NumPy valido
 	if (PyArray_NDIM(ds_array) != 2) {
 		PyErr_SetString(PyExc_ValueError, "Data must be a 2D array");
 		return NULL;
 	}
 
-	// Verifica che sia float64
+	// Verifichiamo che sia float64
 	if (PyArray_TYPE(ds_array) != NPY_FLOAT64) {
 		PyErr_SetString(PyExc_TypeError, "Data must be float64");
 		return NULL;
 	}
 
-	// Estrai dimensioni PRIMA di allocare
+	// Estraiamo dimensioni PRIMA di allocare
 	self->input->N = (int)PyArray_DIM(ds_array, 0);
 	self->input->D = (int)PyArray_DIM(ds_array, 1);
 
-	// Copia dati in buffer allineato (AVX richiede 32-byte alignment)
+	// Copiamo dati in buffer allineato (AVX richiede 32-byte alignment)
 	type* src_data = (type*)PyArray_DATA(ds_array);
 	size_t ds_size = (size_t)self->input->N * (size_t)self->input->D * sizeof(type);
 	type* dataset = (type*)_mm_malloc(ds_size, align);
@@ -122,7 +117,6 @@ static PyObject* QuantPivot64_fit(QuantPivot64Object *self, PyObject *args, PyOb
 	}
 	memcpy(dataset, src_data, ds_size);
 
-	// Nota: N e D già estratti sopra
 	self->input->D = (int)PyArray_DIM(ds_array, 1);
 
 	if (h <= 0 || h > self->input->N) {
@@ -134,28 +128,19 @@ static PyObject* QuantPivot64_fit(QuantPivot64Object *self, PyObject *args, PyOb
 		return NULL;
 	}
 
-
-	// Estrae il numero di pivot
 	self->input->h = h;
 
-	// Estrae il livello di quantizzazione
 	self->input->x = x;
 
-	// Estrae il flag silent
 	self->input->silent = silent;
 
-	// Salva riferimento all'array con INCREF
 	Py_INCREF(ds_array);
 	Py_XDECREF(self->DS_array);
 	self->DS_array = ds_array;
 
 	self->input->DS = dataset;
 
-	// ========================================= //
 	fit(self->input);
-	// ========================================= //
-
-	// Restituisci self per permettere method chaining
 	Py_INCREF(self);
 	return (PyObject *)self;
 }
@@ -172,26 +157,26 @@ static PyObject* QuantPivot64_predict(QuantPivot64Object *self, PyObject *args, 
 									&k, &silent))
 		return NULL;
 
-	// Verifica che fit sia stato chiamato
+	// Verificamo che fit sia stato chiamato
 	if (self->input->index == NULL) {
 		PyErr_SetString(PyExc_RuntimeError,
 					"Model not fitted, call fit() before predict()");
 		return NULL;
 	}
 
-	// Verifica che Q sia un array NumPy valido
+	// Verifichia che Q sia un array NumPy valido
 	if (PyArray_NDIM(query_array) != 2) {
 		PyErr_SetString(PyExc_ValueError, "Data must be a 2D array");
 		return NULL;
 	}
 
-	// Verifica che sia float64
+	// Verifichiamo che sia float64
 	if (PyArray_TYPE(query_array) != NPY_FLOAT64) {
 		PyErr_SetString(PyExc_TypeError, "Data must be float64");
 		return NULL;
 	}
 
-	// Estrai dimensioni
+	// Estraiamo dimensioni
 	self->input->nq = (int)PyArray_DIM(query_array, 0);
 
 	int qD = (int)PyArray_DIM(query_array, 1);
@@ -200,7 +185,7 @@ static PyObject* QuantPivot64_predict(QuantPivot64Object *self, PyObject *args, 
 		return NULL;
 	}
 
-	// Copia query in buffer allineato (AVX richiede 32-byte alignment)
+	// Copiamo query in buffer allineato (AVX richiede 32-byte alignment)
 	type* src_query = (type*)PyArray_DATA(query_array);
 	size_t q_size = (size_t)self->input->nq * (size_t)self->input->D * sizeof(type);
 	type* query = (type*)_mm_malloc(q_size, align);
@@ -218,18 +203,14 @@ static PyObject* QuantPivot64_predict(QuantPivot64Object *self, PyObject *args, 
 	}
 
 
-	// Estrae il numero di K vicini
 	self->input->k = k;
 
-	// Estrae il flag silent
 	self->input->silent = silent;
 
 	self->input->id_nn = (int*) _mm_malloc(self->input->nq * self->input->k * sizeof(int), align);
 	self->input->dist_nn = (type*) _mm_malloc(self->input->nq * self->input->k * sizeof(type), align);
 
-	// ========================================= //
 	predict(self->input);
-	// ========================================= //
 
 	npy_intp dims[2] = {self->input->nq, self->input->k};
 

@@ -31,10 +31,6 @@ static inline void* checked_alloc(size_t size) {
     return p;
 }
 
-// ============================================================
-// QUICKSELECT per Quantizzazione - O(D) in media
-// ============================================================
-
 static inline void swap_pair(type* vals, int* indices, int i, int j) {
     type tmp_val = vals[i];
     vals[i] = vals[j];
@@ -83,9 +79,6 @@ static void quickselect_top_x(type* vals, int* indices, int left, int right, int
     }
 }
 
-// ============================================================
-// QUANTIZZAZIONE OTTIMIZZATA SSE con Quickselect O(D)
-// ============================================================
 
 static inline void quantize_vector_scratch(const type* v,
                                           type* vplus,
@@ -102,7 +95,7 @@ static inline void quantize_vector_scratch(const type* v,
     if (x <= 0) return;
     if (x > D) x = D;
 
-    // Calcolo valori assoluti + indici con SSE
+    // Calcolo dei valori assoluti e degli indici con SSE
     int i = 0;
     const __m128 sign_mask = _mm_set1_ps(-0.0f);
 
@@ -121,10 +114,10 @@ static inline void quantize_vector_scratch(const type* v,
         abs_vals[i] = (type)fabsf((float)v[i]);
     }
 
-    // Quickselect per partizionare i top-x - O(D)
+    // Quickselect per partizionare i top-x - costo pari a O(D)
     quickselect_top_x(abs_vals, indices, 0, D - 1, x);
     
-    // Insertion Sort SOLO sui primi x elementi - O(x²) ma x << D
+    // Insertion Sort SOLO sui primi x elementi - O(x^2) ma x << D
     for (int j = 1; j < x; j++) {
         type key_val = abs_vals[j];
         int key_idx = indices[j];
@@ -146,10 +139,6 @@ static inline void quantize_vector_scratch(const type* v,
         else                  vminus[idx] = (type)1.0f;
     }
 }
-
-// ============================================================
-// DISTANZE
-// ============================================================
 
 static inline type approx_distance_c(type* vplus, type* vminus,
                                     type* wplus, type* wminus, int D)
@@ -237,10 +226,6 @@ static inline type euclidean_distance(type* v, type* w, int D) {
 #endif
 }
 
-// ============================================================
-// LOWER BOUND
-// ============================================================
-
 static inline type compute_lower_bound_c(type* idx_v, type* qpivot, int h) {
     type LB = 0.0f;
 
@@ -296,11 +281,6 @@ static inline type compute_lower_bound_thresh(const type* idx_v,
     return LB;
 }
 
-
-// ============================================================
-// FIT
-// ============================================================
-
 void fit(params* input) {
     if (!input->silent) {
         printf("DEBUG: Entrato in fit() - VERSIONE OTTIMIZZATA (NO MALLOC IN QUANTIZE)\n");
@@ -330,7 +310,6 @@ void fit(params* input) {
         fflush(stdout);
     }
 
-    // 0. init puntatori prima chiamata
     if (input->first_fit_call == false) {
         if(!input->silent) printf("DEBUG: Prima chiamata a fit(), inizializzo puntatori...\n");
         input->P = NULL;
@@ -340,7 +319,6 @@ void fit(params* input) {
         input->first_fit_call = true;
     }
 
-    // 1. parametri
     int N = input->N;
     int D = input->D;
     int h = input->h;
@@ -356,7 +334,6 @@ void fit(params* input) {
         exit(1);
     }
 
-    // 2. selezione pivot
     if (input->P != NULL) {
         if(!input->silent) printf("DEBUG: libero P precedente...\n");
         _mm_free(input->P);
@@ -370,7 +347,6 @@ void fit(params* input) {
 
     if(!input->silent) printf("DEBUG: Pivot generati correttamente.\n");
 
-    // 3. quantizzazione dataset
     if (input->ds_plus != NULL) {
         if(!input->silent) printf("DEBUG: libero ds_plus precedente...\n");
         _mm_free(input->ds_plus);
@@ -384,7 +360,6 @@ void fit(params* input) {
     input->ds_minus = checked_alloc((size_t)N * (size_t)D * sizeof(type));
     if(!input->silent) printf("DEBUG: Allocati ds_plus=%p, ds_minus=%p\n", input->ds_plus, input->ds_minus);
 
-    // scratch riusato (una sola alloc)
     int*  scratch_idx = (int*)malloc((size_t)D * sizeof(int));
     type* scratch_abs = (type*)checked_alloc((size_t)D * sizeof(type));
     if (!scratch_idx || !scratch_abs) {
@@ -416,7 +391,6 @@ void fit(params* input) {
 
     if(!input->silent) printf("DEBUG: Quantizzazione dataset completata.\n");
 
-    // 4. costruzione indice
     if (input->index != NULL) {
         if(!input->silent) printf("DEBUG: libero index precedente...\n");
         _mm_free(input->index);
@@ -456,10 +430,6 @@ void fit(params* input) {
     }
 }
 
-// ============================================================
-// PREDICT
-// ============================================================
-
 typedef struct {
     int id;
     type dist;
@@ -487,13 +457,9 @@ void predict(params* input) {
         exit(1);
     }
 
-    // ============================================================
-    // OTTIMIZZAZIONE 1: BATCH QUANTIZATION - pre-quantizza TUTTE le query
-    // ============================================================
     type* all_q_plus  = (type*)checked_alloc((size_t)nq * (size_t)D * sizeof(type));
     type* all_q_minus = (type*)checked_alloc((size_t)nq * (size_t)D * sizeof(type));
 
-    // scratch per quantizzazione (riusato)
     int*  scratch_idx = (int*)malloc((size_t)D * sizeof(int));
     type* scratch_abs = (type*)checked_alloc((size_t)D * sizeof(type));
     if (!scratch_idx || !scratch_abs) {
@@ -501,7 +467,6 @@ void predict(params* input) {
         exit(1);
     }
 
-    // Pre-quantizza tutte le query in un blocco
     for (int q = 0; q < nq; q++) {
         quantize_vector_scratch(&input->Q[(size_t)q * (size_t)D],
                                 &all_q_plus[(size_t)q * (size_t)D],
@@ -518,9 +483,6 @@ void predict(params* input) {
         fflush(stdout);
     }
 
-    // ============================================================
-    // OTTIMIZZAZIONE 2: MEMORIA CONTIGUA PER I PIVOT
-    // ============================================================
     type* pivot_plus_contig  = (type*)checked_alloc((size_t)h * (size_t)D * sizeof(type));
     type* pivot_minus_contig = (type*)checked_alloc((size_t)h * (size_t)D * sizeof(type));
 
@@ -547,17 +509,14 @@ void predict(params* input) {
     }
 
     for (int q = 0; q < nq; q++) {
-        // Usa query pre-quantizzata
         const type* q_plus  = &all_q_plus[(size_t)q * (size_t)D];
         const type* q_minus = &all_q_minus[(size_t)q * (size_t)D];
 
-        // init kNN
         for (int i = 0; i < k; i++) {
             knn[i].id = -1;
             knn[i].dist = (type)FLT_MAX;
         }
 
-        // precalcolo d~(q, pivot_j) - usa pivot contigui
         for (int j = 0; j < h; j++) {
             const type* pplus  = &pivot_plus_contig[(size_t)j * (size_t)D];
             const type* pminus = &pivot_minus_contig[(size_t)j * (size_t)D];
@@ -569,9 +528,6 @@ void predict(params* input) {
         type worst_dist = (type)FLT_MAX;
         int  worst_idx  = 0;
 
-        // ============================================================
-        // OTTIMIZZAZIONE 3: LOOP UNROLLING x4 sulla scansione dataset
-        // ============================================================
         int v = 0;
         
         // Loop unrolled x4 - processa 4 candidati per iterazione

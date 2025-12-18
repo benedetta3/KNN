@@ -9,35 +9,38 @@
 #include "quantpivot32.c"
 
 // Struttura per l'oggetto QuantPivot
-typedef struct {
-	// Espande a campi obbligatori che ogni oggetto Python deve avere
-	PyObject_HEAD
-	// Parametri
+typedef struct 
+{
+	PyObject_HEAD // è necessario per lavorare con oggetti Python
 	params* input;
-	// Salva i PyArrayObject
 	PyArrayObject* DS_array;	// riferimento all'array dataset
 	PyArrayObject* Q_array;		// riferimento all'array query
 } QuantPivot32Object;
 
-static void mm_free_destructor(PyObject* capsule) {
+static void mm_free_destructor(PyObject* capsule) 
+{
     void* ptr = PyCapsule_GetPointer(capsule, NULL);
-    if (ptr != NULL) {
+    if (ptr != NULL)
+	{
         _mm_free(ptr);
     }
 }
 
-// Deallocazione (pulizia memoria quando l'oggetto viene distrutto)
-static void QuantPivot32_dealloc(QuantPivot32Object *self) {
-	// Libera memoria allocata
+// (per la pulizia della memoria quando l'oggetto viene distrutto)
+static void QuantPivot32_dealloc(QuantPivot32Object *self) 
+{
+	// Liberiamo la memoria allocata
 	if (self->input->P != NULL)
 		_mm_free(self->input->P);
 	if (self->input->index != NULL)
 		_mm_free(self->input->index);
 
-    if (self->input->ds_plus != NULL) _mm_free(self->input->ds_plus);
-    if (self->input->ds_minus != NULL) _mm_free(self->input->ds_minus);
+    if (self->input->ds_plus != NULL) 
+		_mm_free(self->input->ds_plus);
+    if (self->input->ds_minus != NULL) 
+		_mm_free(self->input->ds_minus);
 
-	// Decrementa riferimenti agli array NumPy
+	// Decrementiamo i riferimenti agli array NumPy
 	Py_XDECREF(self->DS_array);
 	Py_XDECREF(self->Q_array);
 
@@ -46,7 +49,9 @@ static void QuantPivot32_dealloc(QuantPivot32Object *self) {
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static int QuantPivot32_init(QuantPivot32Object *self, PyObject *args, PyObject *kwargs) {
+// Inizializzazione dell'oggetto QuantPivot
+static int QuantPivot32_init(QuantPivot32Object *self, PyObject *args, PyObject *kwargs) 
+{
     self->DS_array = NULL;
     self->Q_array = NULL;
 
@@ -56,6 +61,7 @@ static int QuantPivot32_init(QuantPivot32Object *self, PyObject *args, PyObject 
         return -1;
     }
 
+	// Inizializzazione dei campi di input a valori di default
     self->input->DS = NULL;
     self->input->P = NULL;
     self->input->h = -1;
@@ -78,21 +84,23 @@ static int QuantPivot32_init(QuantPivot32Object *self, PyObject *args, PyObject 
     return 0;
 }
 
-// Metodo fit
-static PyObject* QuantPivot32_fit(QuantPivot32Object *self, PyObject *args, PyObject *kwargs) {
+// Metodo fit per addestrare il modello
+static PyObject* QuantPivot32_fit(QuantPivot32Object *self, PyObject *args, PyObject *kwargs) 
+{
 	PyArrayObject *ds_array;
 
 	int h, x, silent = 1;
 
 	static char *kwlist[] = {"dataset", "n_pivots", "quant_level", "silent", NULL};
 
+	// Parsing degli argomenti di input
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O!ii|i", kwlist,
 									&PyArray_Type, &ds_array,
 									&h, &x, &silent)) {
 		return NULL;
 	}
 
-	// Verifica che sia un array NumPy valido
+	// Verifica validità dell'array NumPy
 	if (PyArray_NDIM(ds_array) != 2) {
 		PyErr_SetString(PyExc_ValueError, "Data must be a 2D array");
 		return NULL;
@@ -149,7 +157,7 @@ static PyObject* QuantPivot32_fit(QuantPivot32Object *self, PyObject *args, PyOb
 	fit(self->input);
 	// ========================================= //
 
-	// Restituisci self per permettere method chaining
+	// Restituiamo self per permettere method chaining
 	Py_INCREF(self);
 	return (PyObject *)self;
 }
@@ -166,26 +174,26 @@ static PyObject* QuantPivot32_predict(QuantPivot32Object *self, PyObject *args, 
 									&k, &silent))
 		return NULL;
 
-	// Verifica che fit sia stato chiamato
+	// Verifichiamo che fit sia stato chiamato
 	if (self->input->index == NULL) {
 		PyErr_SetString(PyExc_RuntimeError,
 					"Model not fitted, call fit() before predict()");
 		return NULL;
 	}
 
-	// Verifica che Q sia un array NumPy valido
+	// Verifichiamo che Q sia un array NumPy valido
 	if (PyArray_NDIM(query_array) != 2) {
 		PyErr_SetString(PyExc_ValueError, "Data must be a 2D array");
 		return NULL;
 	}
 
-	// Verifica che sia float32
+	// Verifichiamo che sia float32
 	if (PyArray_TYPE(query_array) != NPY_FLOAT32) {
 		PyErr_SetString(PyExc_TypeError, "Data must be float32");
 		return NULL;
 	}
 
-	// Verifica che siano array contigui
+	// Verifichiamo che siano array contigui
 	type* query = (type*)(PyArrayObject*)PyArray_DATA(query_array);
 	uintptr_t addr = (uintptr_t)query;
 	int is_aligned = (addr % align == 0);
@@ -197,7 +205,7 @@ static PyObject* QuantPivot32_predict(QuantPivot32Object *self, PyObject *args, 
 
 	self->input->Q = query;
 
-	// Estrai dimensioni
+	// Estraiamo le dimensioni per validarle
 	self->input->nq = (int)PyArray_DIM(query_array, 0);
 
 	int qD = (int)PyArray_DIM(query_array, 1);
@@ -221,9 +229,7 @@ static PyObject* QuantPivot32_predict(QuantPivot32Object *self, PyObject *args, 
 	self->input->id_nn = (int*) _mm_malloc(self->input->nq * self->input->k * sizeof(int), align);
 	self->input->dist_nn = (type*) _mm_malloc(self->input->nq * self->input->k * sizeof(type), align);
 
-	// ========================================= //
 	predict(self->input);
-	// ========================================= //
 
 	npy_intp dims[2] = {self->input->nq, self->input->k};
 
@@ -250,7 +256,6 @@ static PyObject* QuantPivot32_predict(QuantPivot32Object *self, PyObject *args, 
 	// Crea un capsule per gestire la deallocazione
 	PyObject* capsule_dist = PyCapsule_New(self->input->dist_nn, NULL, mm_free_destructor);
 
-	// Associa il capsule all'array cosÃ¬ quando l'array viene distrutto,
 	// la memoria allineata viene liberata
 	PyArray_SetBaseObject(dist_nn_array, capsule_dist);
 
