@@ -81,6 +81,27 @@ void save_data(char* filename, void* X, int n, int k) {
 	fclose(fp);
 }
 
+void save_int_data(char* filename, int* X, int n, int k) {
+    FILE* fp;
+    int i;
+    fp = fopen(filename, "wb");
+    if(X != NULL){
+        fwrite(&n, 4, 1, fp);
+        fwrite(&k, 4, 1, fp);
+        for (i = 0; i < n; i++) {
+            fwrite(X, sizeof(int), k, fp);
+            //printf("%i %i\n", ((int*)X)[0], ((int*)X)[1]);
+            X += sizeof(int)*k;
+        }
+    }
+    else{
+        int x = 0;
+        fwrite(&x, 4, 1, fp);
+        fwrite(&x, 4, 1, fp);
+    }
+    fclose(fp);
+}
+
 int main(int argc, char** argv) {
 
 	// ================= Parametri di ingresso =================
@@ -134,7 +155,7 @@ int main(int argc, char** argv) {
 	// Salva il risultato
 	char* outname_id = "out_idnn.ds2";
 	char* outname_k = "out_distnn.ds2";
-	save_data(outname_id, input->id_nn, input->nq, input->k);
+	save_int_data(outname_id, input->id_nn, input->nq, input->k);
 	save_data(outname_k, input->dist_nn, input->nq, input->k);
 
 	if(!input->silent){
