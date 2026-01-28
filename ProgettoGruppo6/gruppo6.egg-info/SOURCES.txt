@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+setup.py
+gruppo6/__init__.py
+gruppo6.egg-info/PKG-INFO
+gruppo6.egg-info/SOURCES.txt
+gruppo6.egg-info/dependency_links.txt
+gruppo6.egg-info/not-zip-safe
+gruppo6.egg-info/requires.txt
+gruppo6.egg-info/top_level.txt
+gruppo6/quantpivot32/__init__.py
+gruppo6/quantpivot64/__init__.py
+gruppo6/quantpivot64omp/__init__.py
+src/32/quantpivot32_py.c
+src/64/quantpivot64_py.c
+src/64omp/quantpivot64omp_py.c
