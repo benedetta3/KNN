@@ -97,7 +97,8 @@ void save_int_data(char* filename, int* X, int n, int k) {
 		fwrite(&k, 4, 1, fp);
 		for (i = 0; i < n; i++) {
 			fwrite(X, sizeof(int), k, fp);
-			X += k;
+			//printf("%i %i\n", ((int*)X)[0], ((int*)X)[1]);
+			X += sizeof(int)*k;
 		}
 	}
 	else{

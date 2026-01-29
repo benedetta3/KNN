@@ -312,6 +312,33 @@ typedef struct {
     type dist;
 } neighbor;
 
+// Funzione inline per update efficiente del kNN  
+static inline void update_knn_fast(neighbor* knn, int k, int id, type dist, type* worst_dist, int* worst_idx) {
+    knn[*worst_idx].id = id;
+    knn[*worst_idx].dist = dist;
+    
+    // Update worst con loop unrolling per k=8 (caso comune)
+    *worst_dist = knn[0].dist; 
+    *worst_idx = 0;
+    
+    if (k >= 8) {
+        if (knn[1].dist > *worst_dist) { *worst_dist = knn[1].dist; *worst_idx = 1; }
+        if (knn[2].dist > *worst_dist) { *worst_dist = knn[2].dist; *worst_idx = 2; }
+        if (knn[3].dist > *worst_dist) { *worst_dist = knn[3].dist; *worst_idx = 3; }
+        if (knn[4].dist > *worst_dist) { *worst_dist = knn[4].dist; *worst_idx = 4; }
+        if (knn[5].dist > *worst_dist) { *worst_dist = knn[5].dist; *worst_idx = 5; }
+        if (knn[6].dist > *worst_dist) { *worst_dist = knn[6].dist; *worst_idx = 6; }
+        if (knn[7].dist > *worst_dist) { *worst_dist = knn[7].dist; *worst_idx = 7; }
+        for (int i = 8; i < k; i++) {
+            if (knn[i].dist > *worst_dist) { *worst_dist = knn[i].dist; *worst_idx = i; }
+        }
+    } else {
+        for (int i = 1; i < k; i++) {
+            if (knn[i].dist > *worst_dist) { *worst_dist = knn[i].dist; *worst_idx = i; }
+        }
+    }
+}
+
 void predict(params* input) {
     if(!input->silent) {
         printf("=======================================================\n");
@@ -412,78 +439,28 @@ void predict(params* input) {
 
             int v = 0;
             
-            // Loop unrolled x4
-            for (; v <= N - 4; v += 4) {
-                // v+0
-                type* idx_v0 = &input->index[(size_t)(v+0) * (size_t)h];
-                type LB0 = compute_lower_bound_sel(idx_v0, qpivot, h);
-                if (LB0 < worst_dist) {
-                    type* vplus_v0  = &input->ds_plus[(size_t)(v+0) * (size_t)D];
-                    type* vminus_v0 = &input->ds_minus[(size_t)(v+0) * (size_t)D];
-                    type d0 = approx_distance_sel(qplus_q, qminus_q, vplus_v0, vminus_v0, D);
-                    if (d0 < worst_dist) {
-                        knn[worst_idx].id = v+0;
-                        knn[worst_idx].dist = d0;
-                        worst_dist = knn[0].dist; worst_idx = 0;
-                        for (int i = 1; i < k; i++) {
-                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
-                        }
-                    }
-                }
-
-                // v+1
-                type* idx_v1 = &input->index[(size_t)(v+1) * (size_t)h];
-                type LB1 = compute_lower_bound_sel(idx_v1, qpivot, h);
-                if (LB1 < worst_dist) {
-                    type* vplus_v1  = &input->ds_plus[(size_t)(v+1) * (size_t)D];
-                    type* vminus_v1 = &input->ds_minus[(size_t)(v+1) * (size_t)D];
-                    type d1 = approx_distance_sel(qplus_q, qminus_q, vplus_v1, vminus_v1, D);
-                    if (d1 < worst_dist) {
-                        knn[worst_idx].id = v+1;
-                        knn[worst_idx].dist = d1;
-                        worst_dist = knn[0].dist; worst_idx = 0;
-                        for (int i = 1; i < k; i++) {
-                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
-                        }
-                    }
-                }
-
-                // v+2
-                type* idx_v2 = &input->index[(size_t)(v+2) * (size_t)h];
-                type LB2 = compute_lower_bound_sel(idx_v2, qpivot, h);
-                if (LB2 < worst_dist) {
-                    type* vplus_v2  = &input->ds_plus[(size_t)(v+2) * (size_t)D];
-                    type* vminus_v2 = &input->ds_minus[(size_t)(v+2) * (size_t)D];
-                    type d2 = approx_distance_sel(qplus_q, qminus_q, vplus_v2, vminus_v2, D);
-                    if (d2 < worst_dist) {
-                        knn[worst_idx].id = v+2;
-                        knn[worst_idx].dist = d2;
-                        worst_dist = knn[0].dist; worst_idx = 0;
-                        for (int i = 1; i < k; i++) {
-                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
-                        }
-                    }
-                }
-
-                // v+3
-                type* idx_v3 = &input->index[(size_t)(v+3) * (size_t)h];
-                type LB3 = compute_lower_bound_sel(idx_v3, qpivot, h);
-                if (LB3 < worst_dist) {
-                    type* vplus_v3  = &input->ds_plus[(size_t)(v+3) * (size_t)D];
-                    type* vminus_v3 = &input->ds_minus[(size_t)(v+3) * (size_t)D];
-                    type d3 = approx_distance_sel(qplus_q, qminus_q, vplus_v3, vminus_v3, D);
-                    if (d3 < worst_dist) {
-                        knn[worst_idx].id = v+3;
-                        knn[worst_idx].dist = d3;
-                        worst_dist = knn[0].dist; worst_idx = 0;
-                        for (int i = 1; i < k; i++) {
-                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
+            // Loop unrolled x8 per massime prestazioni + prefetching
+            for (; v <= N - 8; v += 8) {
+                // Prefetch prossimi cache lines per ridurre latency
+                __builtin_prefetch(&input->index[(size_t)(v+16) * (size_t)h], 0, 3);
+                __builtin_prefetch(&input->ds_plus[(size_t)(v+16) * (size_t)D], 0, 3);
+                
+                // Process 8 vectors unrolled manually
+                for (int offset = 0; offset < 8; offset++) {
+                    type* idx_v = &input->index[(size_t)(v+offset) * (size_t)h];
+                    type LB = compute_lower_bound_sel(idx_v, qpivot, h);
+                    if (LB < worst_dist) {
+                        type* vplus_v  = &input->ds_plus[(size_t)(v+offset) * (size_t)D];
+                        type* vminus_v = &input->ds_minus[(size_t)(v+offset) * (size_t)D];
+                        type d = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
+                        if (d < worst_dist) {
+                            update_knn_fast(knn, k, v+offset, d, &worst_dist, &worst_idx);
                         }
                     }
                 }
             }
 
-            // Remainder
+            // Remainder con ottimizzazione
             for (; v < N; v++) {
                 type* idx_v = &input->index[(size_t)v * (size_t)h];
                 type LB = compute_lower_bound_sel(idx_v, qpivot, h);
@@ -493,12 +470,7 @@ void predict(params* input) {
                 type* vminus_v = &input->ds_minus[(size_t)v * (size_t)D];
                 type d_approx = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
                 if (d_approx < worst_dist) {
-                    knn[worst_idx].id = v;
-                    knn[worst_idx].dist = d_approx;
-                    worst_dist = knn[0].dist; worst_idx = 0;
-                    for (int i = 1; i < k; i++) {
-                        if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
-                    }
+                    update_knn_fast(knn, k, v, d_approx, &worst_dist, &worst_idx);
                 }
             }
 
@@ -524,27 +496,16 @@ void predict(params* input) {
                     type* vminus_v = &input->ds_minus[(size_t)v * (size_t)D];
                     type d_approx = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
                     
-                    // Inserisci SOLO se c'è uno slot vuoto o se è migliore del peggiore
-                    if(knn[worst_idx].id < 0) {
-                        // Slot vuoto: inserisci direttamente
-                        knn[worst_idx].id = v;
-                        knn[worst_idx].dist = d_approx;
-                        valid_neighbors++;
+                    // Inserisci se migliore del peggiore O se ci sono slot vuoti
+                    if(d_approx < worst_dist || knn[worst_idx].id < 0) {
+                        update_knn_fast(knn, k, v, d_approx, &worst_dist, &worst_idx);
                         
-                        // Aggiorna worst
-                        worst_dist = knn[0].dist; 
-                        worst_idx = 0;
-                        for (int i = 1; i < k; i++) {
-                            if (knn[i].id < 0 || knn[i].dist > worst_dist) { 
-                                worst_dist = knn[i].dist; 
-                                worst_idx = i; 
-                            }
+                        // Conta valid neighbors
+                        valid_neighbors = 0;
+                        for(int i = 0; i < k; i++) {
+                            if(knn[i].id >= 0) valid_neighbors++;
                         }
-                        
                         if(valid_neighbors >= k) break;
-                    } else if(d_approx < worst_dist) {
-                        // Migliore del peggiore: sostituisci
-                        knn[worst_idx].id = v;
                         knn[worst_idx].dist = d_approx;
                         
                         // Aggiorna worst
