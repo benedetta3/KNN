@@ -280,9 +280,9 @@ def main():
             result = run_test_32(ds_32, q_32, use_asm)
             results[key][f"32_{variant}"] = result
             if result:
-                print(f"✓ FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
+                print(f" FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
             else:
-                print("✗ ERRORE")
+                print(" ERRORE")
         
         # Test 64-bit
         for use_asm, variant in [(False, "C"), (True, "ASM")]:
@@ -291,9 +291,9 @@ def main():
             result = run_test_64(ds_64, q_64, use_asm)
             results[key][f"64_{variant}"] = result
             if result:
-                print(f"✓ FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
+                print(f" FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
             else:
-                print("✗ ERRORE")
+                print(" ERRORE")
         
         # Test 64-bit OpenMP
         for use_asm, variant in [(False, "C"), (True, "ASM")]:
@@ -302,14 +302,14 @@ def main():
             result = run_test_64omp(ds_64, q_64, use_asm)
             results[key][f"64omp_{variant}"] = result
             if result:
-                print(f"✓ FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
+                print(f" FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
             else:
-                print("✗ ERRORE")
+                print(" ERRORE")
     
     # Stampa risultati
     print_table()
     
-    print("\n✅ Benchmark completato!")
+    print("\nBenchmark completato!")
 
 if __name__ == "__main__":
     main()

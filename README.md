@@ -2,7 +2,7 @@
 
 **Progetto Gruppo 6** - *Architetture Avanzate dei Sistemi di Elaborazione*
 
-## 🎯 Obiettivo del Progetto
+## Obiettivo del Progetto
 
 Implementazione ad alte prestazioni dell'algoritmo QuantPivot per k-Nearest Neighbors con confronto sistematico tra:
 - **Baseline C** (setup professore con `-O0`)  
@@ -12,7 +12,7 @@ L'obiettivo è dimostrare come le ottimizzazioni Assembly manuali possano supera
 
 ---
 
-## 🏗️ Architettura del Sistema
+## Architettura del Sistema
 
 ### 3 Implementazioni Complete
 
@@ -35,7 +35,7 @@ L'obiettivo è dimostrare come le ottimizzazioni Assembly manuali possano supera
 
 ---
 
-## 🚀 Ottimizzazioni Assembly Implementate
+## Ottimizzazioni Assembly Implementate
 
 ### 1. **Vectorization SIMD Avanzata**
 
@@ -91,7 +91,7 @@ vaddpd  xmm0, xmm0, xmm1         ; Combina upper + lower
 
 ---
 
-## 📊 Performance Results
+## Performance Results
 
 ### Setup Professore (-O0 Baseline)
 
@@ -116,11 +116,11 @@ Le ottimizzazioni Assembly SIMD dimostrano miglioramenti significativi rispetto 
 - C baseline non ottimizzato è significativamente più lento
 - Speedup tipici: **1.5x - 3.0x** a seconda del carico di lavoro
 
-> **Insight**: I compilatori moderni con ottimizzazioni aggressive rendono l'Assembly meno vantaggioso. Con baseline `-O0`, l'Assembly dimostra chiaramente i suoi benefici attraverso vectorization manuale, prefetching e loop unrolling espliciti.
+ **Insight**: I compilatori moderni con ottimizzazioni aggressive rendono l'Assembly meno vantaggioso. Con baseline `-O0`, l'Assembly dimostra chiaramente i suoi benefici attraverso vectorization manuale, prefetching e loop unrolling espliciti.
 
 ---
 
-## 🛠️ Setup e Utilizzo
+## Setup e Utilizzo
 
 ### Build Setup
 
@@ -164,7 +164,7 @@ python3 compare_results.py          # Verifica risultati identici
 
 ---
 
-## 🧠 Analisi Tecnica Approfondita
+## Analisi Tecnica Approfondita
 
 ### Perché Assembly Offre Vantaggi con -O0?
 
@@ -185,7 +185,7 @@ Con `-O3 -march=native`:
 
 ---
 
-## 📁 Struttura del Progetto
+## Struttura del Progetto
 
 ```
 ProgettoGruppo6/
@@ -215,14 +215,14 @@ ProgettoGruppo6/
 
 ---
 
-## 🎖️ Risultati Ottenuti
+## Risultati Ottenuti
 
-✅ **Implementazione Completa**: 3 versioni funzionanti (32-bit SSE, 64-bit AVX, 64-bit AVX+OpenMP)  
-✅ **Dual Code Path**: Baseline C e Assembly ottimizzato con switching controllato  
-✅ **Performance Competitive**: Assembly consistentemente più veloce su baseline C  
-✅ **Testing Robusto**: 100% successo su 50 edge cases (dimensioni dispari, prime, non multipli)  
-✅ **Scalabilità Verificata**: Test su dataset da 2K a 10K elementi, dimensioni 1-2048  
-✅ **Correttezza Garantita**: Risultati identici tra versione C e Assembly  
+- **Implementazione Completa**: 3 versioni funzionanti (32-bit SSE, 64-bit AVX, 64-bit AVX+OpenMP)  
+- **Dual Code Path**: Baseline C e Assembly ottimizzato con switching controllato  
+- **Performance Competitive**: Assembly consistentemente più veloce su baseline C  
+- **Testing Robusto**: 100% successo su 50 edge cases (dimensioni dispari, prime, non multipli)  
+- **Scalabilità Verificata**: Test su dataset da 2K a 10K elementi, dimensioni 1-2048  
+- **Correttezza Garantita**: Risultati identici tra versione C e Assembly  
 
 ---
 
@@ -420,7 +420,7 @@ Glossario rapido:
 
 ---
 
-## 🧪 Guida Completa ai Test e Benchmarks
+## Guida Completa ai Test e Benchmarks
 
 ### Setup Iniziale dell'Ambiente
 
@@ -451,7 +451,7 @@ pip install -e .
 
 ### Test delle Diverse Versioni
 
-#### 🔧 **Versione 32-bit C (Baseline)**
+#### **Versione 32-bit C (Baseline)**
 
 ```bash
 # Build versione C normale
@@ -478,7 +478,7 @@ Distanze compatibili: True
 
 ---
 
-#### ⚡ **Versione 32-bit SSE Assembly**
+#### **Versione 32-bit SSE Assembly**
 
 ```bash
 # Build con assembly SSE attivato
@@ -496,7 +496,7 @@ python3 compare_results.py --t 32
 
 **Output Atteso:**
 ```
-🔧 Assembly 32-bit ABILITATO
+Assembly 32-bit ABILITATO
 PREDICT: ASM version
 FIT time: ~0.049 seconds (~48% faster)
 PRD time: ~2.09 seconds (~65% faster)
@@ -506,7 +506,7 @@ Distanze compatibili: True
 
 ---
 
-#### 🔧 **Versione 64-bit C (Baseline)**
+#### **Versione 64-bit C (Baseline)**
 
 ```bash
 # Build versione C normale
@@ -534,7 +534,7 @@ Distanze compatibili: True
 
 ---
 
-#### ⚡ **Versione 64-bit AVX Assembly**
+#### **Versione 64-bit AVX Assembly**
 
 ```bash
 # Build con assembly AVX attivato
@@ -552,7 +552,7 @@ python3 compare_results.py --t 64
 
 **Output Atteso:**
 ```
-🔧 Assembly 64-bit ABILITATO
+Assembly 64-bit ABILITATO
 FIT: ASM version
 PREDICT: ASM version
 FIT time: ~0.048 seconds (~60% faster)
@@ -563,7 +563,7 @@ Distanze compatibili: True
 
 ---
 
-#### 🔧 **Versione 64-bit C + OpenMP**
+#### **Versione 64-bit C + OpenMP**
 
 ```bash
 # Build versione C con OpenMP
@@ -593,7 +593,7 @@ Distanze compatibili: True
 
 ---
 
-#### 🚀 **Versione 64-bit AVX Assembly + OpenMP (Massime Prestazioni)**
+#### **Versione 64-bit AVX Assembly + OpenMP (Massime Prestazioni)**
 
 ```bash
 # Build con assembly AVX + OpenMP attivato
@@ -611,7 +611,7 @@ python3 compare_results.py --t 64omp
 
 **Output Atteso:**
 ```
-🔧 Assembly 64-bit OpenMP ABILITATO
+Assembly 64-bit OpenMP ABILITATO
 VERSIONE 64-bit OPENMP
 FIT: ASM version
 PREDICT: ASM version
@@ -624,7 +624,7 @@ Distanze compatibili: True
 
 ---
 
-### 📊 **Riepilogo Performance**
+### **Riepilogo Performance**
 
 | Versione | FIT time | PRD time | Speedup PRD vs C |
 |----------|----------|----------|------------------|
@@ -633,17 +633,17 @@ Distanze compatibili: True
 | **64-bit C** | 0.123s | 6.73s | baseline |
 | **64-bit AVX ASM** | 0.048s | 2.49s | **~63% faster** |
 | **64-bit C + OMP** | 0.066s | 3.34s | baseline |
-| **64-bit AVX ASM + OMP** | 0.042s | 1.75s | **~48% faster** 🏆 |
+| **64-bit AVX ASM + OMP** | 0.042s | 1.75s | **~48% faster**  |
 
 ---
 
-### 🔧 **Variabili d'Ambiente per Build**
+### **Variabili d'Ambiente per Build**
 
 - **`USE_ASM_32=1`** - Abilita assembly SSE per 32-bit
 - **`USE_ASM_64=1`** - Abilita assembly AVX per 64-bit  
 - **`USE_ASM_OMP=1`** - Abilita assembly AVX + OpenMP per 64-bit
 
-### 📝 **Note sui Flag di Compilazione**
+### **Note sui Flag di Compilazione**
 
 Quando assembly è abilitato, il build aggiunge automaticamente:
 - `-DUSE_ASM_APPROX`

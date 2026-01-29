@@ -44,17 +44,17 @@ use_asm_omp = os.environ.get("USE_ASM_OMP", "0") == "1"
 cflags_32 = ['-O0', '-msse', '-fPIC']
 if use_asm_32:
     cflags_32 += ['-DUSE_ASM_APPROX', '-DUSE_ASM_EUCLIDEAN', '-DUSE_ASM_LOWER_BOUND']
-    print("🔧 Assembly 32-bit ABILITATO")
+    print("Assembly 32-bit ABILITATO")
 
 cflags_64 = ['-O0', '-msse', '-mavx', '-fPIC']
 if use_asm_64:
     cflags_64 += ['-DUSE_ASM_APPROX', '-DUSE_ASM_EUCLIDEAN', '-DUSE_ASM_LOWER_BOUND']
-    print("🔧 Assembly 64-bit ABILITATO")
+    print("Assembly 64-bit ABILITATO")
 
 cflags_64omp = ['-O0', '-msse', '-mavx', '-fPIC', '-fopenmp']
 if use_asm_omp:
     cflags_64omp += ['-DUSE_ASM_APPROX', '-DUSE_ASM_EUCLIDEAN', '-DUSE_ASM_LOWER_BOUND']
-    print("🔧 Assembly 64-bit OpenMP ABILITATO")
+    print("Assembly 64-bit OpenMP ABILITATO")
 
 module32 = Extension(
     f"{gruppo}.quantpivot32._quantpivot32",  # Nome completo del modulo
