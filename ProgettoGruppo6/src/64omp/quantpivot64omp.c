@@ -470,7 +470,16 @@ void predict(params* input) {
                 type* vminus_v = &input->ds_minus[(size_t)v * (size_t)D];
                 type d_approx = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
                 if (d_approx < worst_dist) {
-                    update_knn_fast(knn, k, v, d_approx, &worst_dist, &worst_idx);
+                    knn[worst_idx].id = v;
+                    knn[worst_idx].dist = d_approx;
+                    worst_dist = knn[0].dist; 
+                    worst_idx = 0;
+                    for (int i = 1; i < k; i++) {
+                        if (knn[i].dist > worst_dist) { 
+                            worst_dist = knn[i].dist; 
+                            worst_idx = i; 
+                        }
+                    }
                 }
             }
 
@@ -498,25 +507,25 @@ void predict(params* input) {
                     
                     // Inserisci se migliore del peggiore O se ci sono slot vuoti
                     if(d_approx < worst_dist || knn[worst_idx].id < 0) {
-                        update_knn_fast(knn, k, v, d_approx, &worst_dist, &worst_idx);
-                        
-                        // Conta valid neighbors
-                        valid_neighbors = 0;
-                        for(int i = 0; i < k; i++) {
-                            if(knn[i].id >= 0) valid_neighbors++;
-                        }
-                        if(valid_neighbors >= k) break;
+                        knn[worst_idx].id = v;
                         knn[worst_idx].dist = d_approx;
                         
                         // Aggiorna worst
                         worst_dist = knn[0].dist; 
                         worst_idx = 0;
                         for (int i = 1; i < k; i++) {
-                            if (knn[i].dist > worst_dist) { 
+                            if (knn[i].id < 0 || knn[i].dist > worst_dist) { 
                                 worst_dist = knn[i].dist; 
                                 worst_idx = i; 
                             }
                         }
+                        
+                        // Conta valid neighbors e exit se completo
+                        valid_neighbors = 0;
+                        for(int i = 0; i < k; i++) {
+                            if(knn[i].id >= 0) valid_neighbors++;
+                        }
+                        if(valid_neighbors >= k) break;
                     }
                 }
             }

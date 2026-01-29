@@ -15,7 +15,7 @@ global compute_lower_bound_asm
 ;
 ; OTTIMIZZAZIONI:
 ;   - Unrolling x4 (16 float/iterazione)
-;   - MOVUPS per sicurezza (funziona anche con dati non allineati)
+;   - MOVAPS per dati allineati (più veloce di MOVUPS)
 ;   - Prefetching aggressivo
 ;   - Gestione robusta remainder (16 -> 8 -> 4 -> 1)
 ;
@@ -44,11 +44,11 @@ approx_distance_asm:
     prefetchnta [rdx + 256]
     prefetchnta [rcx + 256]
 
-    ; ==== BLOCCO 1 (0-3) - MOVUPS per sicurezza ====
-    movups xmm4, [rdi]      ; SAFE: funziona anche se non allineato
-    movups xmm5, [rsi]
-    movups xmm6, [rdx]
-    movups xmm7, [rcx]
+    ; ==== BLOCCO 1 (0-3) - MOVAPS per dati allineati ====
+    movaps xmm4, [rdi]      ; VELOCE: dati allineati 32-byte
+    movaps xmm5, [rsi]
+    movaps xmm6, [rdx]
+    movaps xmm7, [rcx]
 
     movaps xmm8, xmm4       ; register-to-register (veloce)
     mulps  xmm8, xmm6
@@ -67,10 +67,10 @@ approx_distance_asm:
     addps  xmm3, xmm8
 
     ; ==== BLOCCO 2 (4-7) ====
-    movups xmm4, [rdi + 16]
-    movups xmm5, [rsi + 16]
-    movups xmm6, [rdx + 16]
-    movups xmm7, [rcx + 16]
+    movaps xmm4, [rdi + 16]
+    movaps xmm5, [rsi + 16]
+    movaps xmm6, [rdx + 16]
+    movaps xmm7, [rcx + 16]
 
     movaps xmm8, xmm4
     mulps  xmm8, xmm6
@@ -89,10 +89,10 @@ approx_distance_asm:
     addps  xmm3, xmm8
 
     ; ==== BLOCCO 3 (8-11) ====
-    movups xmm4, [rdi + 32]
-    movups xmm5, [rsi + 32]
-    movups xmm6, [rdx + 32]
-    movups xmm7, [rcx + 32]
+    movaps xmm4, [rdi + 32]
+    movaps xmm5, [rsi + 32]
+    movaps xmm6, [rdx + 32]
+    movaps xmm7, [rcx + 32]
 
     movaps xmm8, xmm4
     mulps  xmm8, xmm6
@@ -111,10 +111,10 @@ approx_distance_asm:
     addps  xmm3, xmm8
 
     ; ==== BLOCCO 4 (12-15) ====
-    movups xmm4, [rdi + 48]
-    movups xmm5, [rsi + 48]
-    movups xmm6, [rdx + 48]
-    movups xmm7, [rcx + 48]
+    movaps xmm4, [rdi + 48]
+    movaps xmm5, [rsi + 48]
+    movaps xmm6, [rdx + 48]
+    movaps xmm7, [rcx + 48]
 
     movaps xmm8, xmm4
     mulps  xmm8, xmm6
@@ -148,10 +148,10 @@ approx_distance_asm:
     jz .check4
 
 .main_loop8:
-    movups xmm4, [rdi]
-    movups xmm5, [rsi]
-    movups xmm6, [rdx]
-    movups xmm7, [rcx]
+    movaps xmm4, [rdi]
+    movaps xmm5, [rsi]
+    movaps xmm6, [rdx]
+    movaps xmm7, [rcx]
 
     movaps xmm8, xmm4
     mulps  xmm8, xmm6
