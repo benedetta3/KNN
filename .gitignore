@@ -1,0 +1,40 @@
+# Build artifacts
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.o
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Dataset files (binary, usually large)
+*.ds2
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+.pytest_cache/
+
+# Results files
+benchmark_results.txt
+benchmark_dimensioni_results.txt
+*NN_*_size-*
+
+# Temporary files
+*.tmp
+*.temp

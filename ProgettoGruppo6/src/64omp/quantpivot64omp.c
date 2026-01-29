@@ -8,20 +8,56 @@
 #include <omp.h>
 #include "common.h"
 
-#define USE_ASM_APPROX 1
-#define USE_ASM_EUCLIDEAN 1
-#define USE_ASM_LOWER_BOUND 1
+// ============================================================================
+// VERSIONE 64-bit OPENMP - Selezionabile C/ASM con parallelizzazione OpenMP
+// ============================================================================
 
+#ifdef USE_ASM_APPROX
 extern double approx_distance_asm(const double* vplus, const double* vminus,
                                   const double* wplus, const double* wminus,
                                   int D);
-
+#endif
+#ifdef USE_ASM_EUCLIDEAN
 extern double euclidean_distance_asm(const double* v, const double* w, int D);
-
+#endif
+#ifdef USE_ASM_LOWER_BOUND
 extern double compute_lower_bound_asm(const double* idx_v, const double* qpivot, int h);
+#endif
+
+// Prototipi funzioni C baseline
+double approx_distance_c(const double* vplus, const double* vminus, const double* wplus, const double* wminus, int D);
+double euclidean_distance_c(const double* v, const double* w, int D);
+double compute_lower_bound_c(const double* idx_v, const double* qpivot, int h);
+
+// Wrapper selettivi
+static inline double approx_distance_sel(const double* vplus, const double* vminus,
+                                         const double* wplus, const double* wminus,
+                                         int D) {
+#if defined(USE_ASM_APPROX)
+    return approx_distance_asm(vplus, vminus, wplus, wminus, D);
+#else
+    return approx_distance_c(vplus, vminus, wplus, wminus, D);
+#endif
+}
+
+static inline double euclidean_distance_sel(const double* v, const double* w, int D) {
+#if defined(USE_ASM_EUCLIDEAN)
+    return euclidean_distance_asm(v, w, D);
+#else
+    return euclidean_distance_c(v, w, D);
+#endif
+}
+
+static inline double compute_lower_bound_sel(const double* idx_v, const double* qpivot, int h) {
+#if defined(USE_ASM_LOWER_BOUND)
+    return compute_lower_bound_asm(idx_v, qpivot, h);
+#else
+    return compute_lower_bound_c(idx_v, qpivot, h);
+#endif
+}
 
 void* checked_alloc(size_t size) {
-    void* p = _mm_malloc(size, align);
+    void* p = _mm_malloc(size, 32);
     if (!p) {
         printf("ERRORE: impossibile allocare %lu bytes\n", size);
         fflush(stdout);
@@ -31,88 +67,7 @@ void* checked_alloc(size_t size) {
 }
 
 // ==============================
-// MAX-HEAP per K-NN
-// ==============================
-
-typedef struct {
-    int id;
-    type dist;
-} neighbor;
-
-typedef struct {
-    neighbor* heap;
-    int size;
-    int capacity;
-} MaxHeap;
-
-static inline void heap_init(MaxHeap* h, int k) {
-    h->heap = (neighbor*)malloc(k * sizeof(neighbor));
-    h->size = 0;
-    h->capacity = k;
-    for(int i = 0; i < k; i++) {
-        h->heap[i].id = -1;
-        h->heap[i].dist = DBL_MAX;
-    }
-}
-
-static inline void heap_free(MaxHeap* h) {
-    free(h->heap);
-}
-
-static inline void heap_swap(neighbor* a, neighbor* b) {
-    neighbor temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-static inline void heap_sift_down(MaxHeap* h, int idx) {
-    int largest = idx;
-    int left = 2 * idx + 1;
-    int right = 2 * idx + 2;
-
-    if(left < h->size && h->heap[left].dist > h->heap[largest].dist)
-        largest = left;
-    if(right < h->size && h->heap[right].dist > h->heap[largest].dist)
-        largest = right;
-
-    if(largest != idx) {
-        heap_swap(&h->heap[idx], &h->heap[largest]);
-        heap_sift_down(h, largest);
-    }
-}
-
-static inline void heap_sift_up(MaxHeap* h, int idx) {
-    while(idx > 0) {
-        int parent = (idx - 1) / 2;
-        if(h->heap[parent].dist >= h->heap[idx].dist)
-            break;
-        heap_swap(&h->heap[parent], &h->heap[idx]);
-        idx = parent;
-    }
-}
-
-static inline int heap_try_insert(MaxHeap* h, int id, type dist) {
-    if(h->size < h->capacity) {
-        h->heap[h->size].id = id;
-        h->heap[h->size].dist = dist;
-        heap_sift_up(h, h->size);
-        h->size++;
-        return 1;
-    } else if(dist < h->heap[0].dist) {
-        h->heap[0].id = id;
-        h->heap[0].dist = dist;
-        heap_sift_down(h, 0);
-        return 1;
-    }
-    return 0;
-}
-
-static inline type heap_max_dist(MaxHeap* h) {
-    return (h->size > 0) ? h->heap[0].dist : DBL_MAX;
-}
-
-// ==============================
-// QUICKSELECT per Quantizzazione
+// QUICKSELECT
 // ==============================
 
 static inline void swap_pair(type* vals, int* indices, int i, int j) {
@@ -164,10 +119,9 @@ static void quickselect_top_x(type* vals, int* indices, int left, int right, int
 }
 
 // ==============================
-// QUANTIZZAZIONE OTTIMIZZATA AVX con Quickselect
+// QUANTIZZAZIONE
 // ==============================
 
-// Versione che riusa buffer scratch (NO malloc/free per ogni chiamata)
 static inline void quantize_vector_scratch(const type* v,
                                            type* vplus,
                                            type* vminus,
@@ -182,43 +136,27 @@ static inline void quantize_vector_scratch(const type* v,
     if(x <= 0) return;
     if(x > D) x = D;
 
-    int i = 0;
-    __m256d sign_mask = _mm256_set1_pd(-0.0);
-    
-    for(; i <= D - 4; i += 4) {
-        __m256d vals = _mm256_loadu_pd(&v[i]);
-        __m256d abs_v = _mm256_andnot_pd(sign_mask, vals);
-        _mm256_storeu_pd(&abs_vals[i], abs_v);
-        indices[i] = i;
-        indices[i+1] = i+1;
-        indices[i+2] = i+2;
-        indices[i+3] = i+3;
-    }
-    
-    for(; i < D; i++) {
+    for(int i = 0; i < D; i++) {
         indices[i] = i;
         abs_vals[i] = fabs(v[i]);
     }
     
-    // Quickselect per partizionare i top-x - O(D)
     quickselect_top_x(abs_vals, indices, 0, D - 1, x);
     
-    // Insertion Sort SOLO sui primi x elementi - O(x^2) ma x << D
-    for(int j = 1; j < x; j++) {
-        type key_val = abs_vals[j];
-        int key_idx = indices[j];
-        int k = j - 1;
+    for(int i = 1; i < x; i++) {
+        type key_val = abs_vals[i];
+        int key_idx = indices[i];
+        int j = i - 1;
         
-        while(k >= 0 && abs_vals[k] < key_val) {
-            abs_vals[k + 1] = abs_vals[k];
-            indices[k + 1] = indices[k];
-            k--;
+        while(j >= 0 && abs_vals[j] < key_val) {
+            abs_vals[j + 1] = abs_vals[j];
+            indices[j + 1] = indices[j];
+            j--;
         }
-        abs_vals[k + 1] = key_val;
-        indices[k + 1] = key_idx;
+        abs_vals[j + 1] = key_val;
+        indices[j + 1] = key_idx;
     }
     
-    // Imposta bit
     for(int count = 0; count < x; count++) {
         int idx = indices[count];
         if(v[idx] >= 0) {
@@ -229,181 +167,64 @@ static inline void quantize_vector_scratch(const type* v,
     }
 }
 
-// Versione originale per compatibilita
-void quantize_vector(type* v, type* vplus, type* vminus, int x, int D) {
-    int* indices = (int*)malloc(D * sizeof(int));
-    type* abs_vals = (type*)_mm_malloc(D * sizeof(type), align);
-    
-    quantize_vector_scratch(v, vplus, vminus, x, D, indices, abs_vals);
-    
-    _mm_free(abs_vals);
-    free(indices);
-}
-
 // ==============================
-// DISTANZE OTTIMIZZATE AVX
+// DISTANZE C BASELINE
 // ==============================
 
-type approx_distance_c(type* vplus, type* vminus, type* wplus, type* wminus, int D) {
-    __m256d sum_pp = _mm256_setzero_pd();
-    __m256d sum_mm = _mm256_setzero_pd();
-    __m256d sum_pm = _mm256_setzero_pd();
-    __m256d sum_mp = _mm256_setzero_pd();
-    
-    int i = 0;
-    for(; i <= D - 4; i += 4) {
-        __m256d vp = _mm256_load_pd(&vplus[i]);
-        __m256d vm = _mm256_load_pd(&vminus[i]);
-        __m256d wp = _mm256_load_pd(&wplus[i]);
-        __m256d wm = _mm256_load_pd(&wminus[i]);
-        
-        sum_pp = _mm256_add_pd(sum_pp, _mm256_mul_pd(vp, wp));
-        sum_mm = _mm256_add_pd(sum_mm, _mm256_mul_pd(vm, wm));
-        sum_pm = _mm256_add_pd(sum_pm, _mm256_mul_pd(vp, wm));
-        sum_mp = _mm256_add_pd(sum_mp, _mm256_mul_pd(vm, wp));
-    }
-    
-    double temp[4] __attribute__((aligned(32)));
-    _mm256_store_pd(temp, sum_pp);
-    type dot_pp = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    _mm256_store_pd(temp, sum_mm);
-    type dot_mm = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    _mm256_store_pd(temp, sum_pm);
-    type dot_pm = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    _mm256_store_pd(temp, sum_mp);
-    type dot_mp = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    for(; i < D; i++) {
+double approx_distance_c(const double* vplus, const double* vminus, 
+                        const double* wplus, const double* wminus, int D) {
+    type dot_pp = 0.0;
+    type dot_mm = 0.0;
+    type dot_pm = 0.0;
+    type dot_mp = 0.0;
+    for (int i = 0; i < D; i++) {
         dot_pp += vplus[i] * wplus[i];
         dot_mm += vminus[i] * wminus[i];
         dot_pm += vplus[i] * wminus[i];
         dot_mp += vminus[i] * wplus[i];
     }
-    
     return dot_pp + dot_mm - dot_pm - dot_mp;
 }
 
-double approx_distance(const double* vplus, const double* vminus,
-                       const double* wplus, const double* wminus,
-                       int D)
-{
-#ifdef USE_ASM_APPROX
-    if (D <= 0) return 0.0;
-    return approx_distance_asm(vplus, vminus, wplus, wminus, D);
-#else
-    return approx_distance_c((double*)vplus, (double*)vminus, (double*)wplus, (double*)wminus, D);
-#endif
+double euclidean_distance_c(const double* v, const double* w, int D) {
+    type sum_sq = 0.0;
+    for (int i = 0; i < D; i++) {
+        type diff = v[i] - w[i];
+        sum_sq += diff * diff;
+    }
+    return sqrt(sum_sq);
 }
 
-type euclidean_distance_c(type* v, type* w, int D) {
-    __m256d sum = _mm256_setzero_pd();
-    
-    int i = 0;
-    for(; i <= D - 4; i += 4) {
-        __m256d v_vec = _mm256_loadu_pd(&v[i]);
-        __m256d w_vec = _mm256_loadu_pd(&w[i]);
-        __m256d diff = _mm256_sub_pd(v_vec, w_vec);
-        sum = _mm256_add_pd(sum, _mm256_mul_pd(diff, diff));
-    }
-    
-    double temp[4] __attribute__((aligned(32)));
-    _mm256_store_pd(temp, sum);
-    type result = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    for(; i < D; i++) {
-        type d = v[i] - w[i];
-        result += d * d;
-    }
-    
-    return sqrt(result);
-}
-
-type euclidean_distance(type* v, type* w, int D) {
-#ifdef USE_ASM_EUCLIDEAN
-    if (D <= 0) return 0.0;
-    return euclidean_distance_asm(v, w, D);
-#else
-    return euclidean_distance_c(v, w, D);
-#endif
-}
-
-type compute_lower_bound_c(type* idx_v, type* qpivot, int h) {
-    type LB = 0.0;
-    
-    __m256d max_lb = _mm256_setzero_pd();
-    __m256d sign_mask = _mm256_set1_pd(-0.0);
-    
-    int j = 0;
-    for(; j <= h - 4; j += 4) {
-        __m256d iv = _mm256_loadu_pd(&idx_v[j]);
-        __m256d qp = _mm256_loadu_pd(&qpivot[j]);
-        __m256d diff = _mm256_sub_pd(iv, qp);
-        __m256d abs_diff = _mm256_andnot_pd(sign_mask, diff);
-        max_lb = _mm256_max_pd(max_lb, abs_diff);
-    }
-    
-    double temp[4] __attribute__((aligned(32)));
-    _mm256_store_pd(temp, max_lb);
-    LB = temp[0];
-    if(temp[1] > LB) LB = temp[1];
-    if(temp[2] > LB) LB = temp[2];
-    if(temp[3] > LB) LB = temp[3];
-    
-    for(; j < h; j++) {
+double compute_lower_bound_c(const double* idx_v, const double* qpivot, int h) {
+    type max_lb = 0.0;
+    for (int j = 0; j < h; j++) {
         type diff = fabs(idx_v[j] - qpivot[j]);
-        if(diff > LB) LB = diff;
+        if (diff > max_lb) {
+            max_lb = diff;
+        }
     }
-    
-    return LB;
-}
-
-type compute_lower_bound(type* idx_v, type* qpivot, int h) {
-#ifdef USE_ASM_LOWER_BOUND
-    if (h <= 0) return 0.0;
-    return compute_lower_bound_asm(idx_v, qpivot, h);
-#else
-    return compute_lower_bound_c(idx_v, qpivot, h);
-#endif
+    return max_lb;
 }
 
 // ==============================
-// FIT con OpenMP
+// FIT - PARALLELIZZATO
 // ==============================
 
 void fit(params* input) {
     if(!input->silent) {
-        printf("DEBUG: Entrato in fit() OTTIMIZZATO - VERSIONE OPENMP\n");
+        printf("=======================================================\n");
+        printf("  VERSIONE 64-bit OPENMP\n");
+        #if defined(USE_ASM_APPROX) || defined(USE_ASM_EUCLIDEAN) || defined(USE_ASM_LOWER_BOUND)
+            printf("  FIT: ASM version\n");
+        #else
+            printf("  FIT: C version\n");
+        #endif
+        printf("  OpenMP threads: %d\n", omp_get_max_threads());
+        printf("=======================================================\n");
         fflush(stdout);
     }
-    
-    #ifndef USE_ASM_APPROX
-        printf("[DEBUG] approx_distance: versione C baseline AVX attiva\n");
-    #else
-        printf("[DEBUG] approx_distance: versione ASM AVX attiva\n");
-    #endif
-    
-    #ifndef USE_ASM_EUCLIDEAN
-        printf("[DEBUG] euclidean_distance: versione C baseline AVX attiva\n");
-    #else
-        printf("[DEBUG] euclidean_distance: versione ASM AVX attiva\n");
-    #endif
-    
-    #ifndef USE_ASM_LOWER_BOUND
-        printf("[DEBUG] lower_bound: versione C AVX attiva\n");
-    #else
-        printf("[DEBUG] lower_bound: versione ASM AVX attiva\n");
-    #endif
-    
-    printf("[OPTIMIZATION] Quantizzazione: Quickselect O(D) + OpenMP\n");
-    printf("[OPTIMIZATION] KNN Search: Max-Heap O(log k) + OpenMP\n");
-    
-    fflush(stdout);
 
     if (input->first_fit_call == false) {
-        if(!input->silent) printf("DEBUG: Prima chiamata a fit(), inizializzo puntatori...\n");
         input->P = NULL;
         input->ds_plus = NULL;
         input->ds_minus = NULL;
@@ -416,71 +237,57 @@ void fit(params* input) {
     int h = input->h;
     int x = input->x;
 
-    if(!input->silent) {
-        printf("FIT PARAMS: N=%d, D=%d, h=%d, x=%d\n", N, D, h, x);
-        printf("OpenMP threads: %d\n", omp_get_max_threads());
-        fflush(stdout);
-    }
-
     if(input->DS == NULL){
-        printf("ERRORE: input->DS è NULL! Abort.\n");
+        printf("ERRORE: input->DS è NULL!\n");
         exit(1);
     }
 
-    if(input->P != NULL){
-        if(!input->silent) printf("DEBUG: libero P precedente...\n");
-        _mm_free(input->P);
-    }
-
+    if(input->P != NULL) _mm_free(input->P);
     input->P = checked_alloc(h * sizeof(int));
-    if(!input->silent) printf("DEBUG: P allocato = %p\n", input->P);
 
     int step = N / h;
     for(int j = 0; j < h; j++){
         input->P[j] = j * step;
     }
 
-    if(!input->silent) printf("DEBUG: Pivot generati correttamente.\n");
+    if(input->ds_plus != NULL) _mm_free(input->ds_plus);
+    if(input->ds_minus != NULL) _mm_free(input->ds_minus);
 
-    if(input->ds_plus != NULL){
-        if(!input->silent) printf("DEBUG: libero ds_plus precedente...\n");
-        _mm_free(input->ds_plus);
-    }
-    if(input->ds_minus != NULL){
-        if(!input->silent) printf("DEBUG: libero ds_minus precedente...\n");
-        _mm_free(input->ds_minus);
-    }
-
-    input->ds_plus  = checked_alloc(N * D * sizeof(type));
+    input->ds_plus = checked_alloc(N * D * sizeof(type));
     input->ds_minus = checked_alloc(N * D * sizeof(type));
 
-    if(!input->silent) printf("DEBUG: Allocati ds_plus=%p, ds_minus=%p\n", input->ds_plus, input->ds_minus);
+    // PARALLELIZZAZIONE: ogni thread ha scratch buffer proprio
+    #pragma omp parallel
+    {
+        int*  scratch_idx = (int*)malloc(D * sizeof(int));
+        type* scratch_abs = (type*)_mm_malloc(D * sizeof(type), 32);
+        
+        if (!scratch_idx || !scratch_abs) {
+            printf("ERRORE: scratch alloc (thread %d)\n", omp_get_thread_num());
+            exit(1);
+        }
 
-    // PARALLELIZZAZIONE con OpenMP
-    #pragma omp parallel for schedule(dynamic, 64)
-    for(int i = 0; i < N; i++){
-        quantize_vector(&input->DS[i * D],
-                        &input->ds_plus[i * D],
-                        &input->ds_minus[i * D],
-                        x, D);
+        #pragma omp for schedule(dynamic, 100)
+        for(int i = 0; i < N; i++){
+            quantize_vector_scratch(&input->DS[i * D],
+                                    &input->ds_plus[i * D],
+                                    &input->ds_minus[i * D],
+                                    x, D,
+                                    scratch_idx, scratch_abs);
+        }
+
+        _mm_free(scratch_abs);
+        free(scratch_idx);
     }
 
-    if(!input->silent) printf("DEBUG: Quantizzazione dataset completata (OpenMP).\n");
-
-    if(input->index != NULL){
-        if(!input->silent) printf("DEBUG: libero index precedente...\n");
-        _mm_free(input->index);
-    }
-
+    if(input->index != NULL) _mm_free(input->index);
     input->index = checked_alloc(N * h * sizeof(type));
-    if(!input->silent) printf("DEBUG: index allocato = %p\n", input->index);
 
-    #pragma omp parallel for schedule(dynamic, 64)
+    #pragma omp parallel for schedule(dynamic, 100)
     for(int i = 0; i < N; i++){
         for(int j = 0; j < h; j++){
             int pivot_idx = input->P[j];
-
-            input->index[i*h + j] = approx_distance(
+            input->index[i*h + j] = approx_distance_sel(
                 &input->ds_plus[i * D],    
                 &input->ds_minus[i * D],
                 &input->ds_plus[pivot_idx * D], 
@@ -491,17 +298,30 @@ void fit(params* input) {
     }
 
     if(!input->silent) {
-        printf("DEBUG: Index costruito (OpenMP).\n");
         printf("FIT COMPLETATO.\n");
         fflush(stdout);
     }
 }
 
 // ==============================
+// PREDICT - PARALLELIZZATO
+// ==============================
+
+typedef struct {
+    int id;
+    type dist;
+} neighbor;
 
 void predict(params* input) {
     if(!input->silent) {
-        printf("DEBUG: Entrato in predict() OTTIMIZZATO - VERSIONE OPENMP\n");
+        printf("=======================================================\n");
+        #if defined(USE_ASM_APPROX) || defined(USE_ASM_EUCLIDEAN) || defined(USE_ASM_LOWER_BOUND)
+            printf("  PREDICT: ASM version\n");
+        #else
+            printf("  PREDICT: C version\n");
+        #endif
+        printf("  OpenMP threads: %d\n", omp_get_max_threads());
+        printf("=======================================================\n");
         fflush(stdout);
     }
 
@@ -516,25 +336,39 @@ void predict(params* input) {
         printf("ERRORE: predict() chiamata prima di fit()!\n");
         exit(1);
     }
-
     if(input->Q == NULL){
         printf("ERRORE: input->Q è NULL!\n");
         exit(1);
     }
 
-    MATRIX q_plus  = checked_alloc(nq * D * sizeof(type));
-    MATRIX q_minus = checked_alloc(nq * D * sizeof(type));
+    MATRIX q_plus  = (type*)checked_alloc(nq * D * sizeof(type));
+    MATRIX q_minus = (type*)checked_alloc(nq * D * sizeof(type));
 
-    #pragma omp parallel for schedule(static)
-    for(int q = 0; q < nq; q++){
-        quantize_vector(&input->Q[q * D],
-                        &q_plus[q * D],
-                        &q_minus[q * D],
-                        x, D);
+    // PARALLELIZZAZIONE quantizzazione query
+    #pragma omp parallel
+    {
+        int*  scratch_idx = (int*)malloc(D * sizeof(int));
+        type* scratch_abs = (type*)_mm_malloc(D * sizeof(type), 32);
+        
+        if (!scratch_idx || !scratch_abs) {
+            printf("ERRORE: scratch alloc (thread %d)\n", omp_get_thread_num());
+            exit(1);
+        }
+
+        #pragma omp for
+        for(int q = 0; q < nq; q++){
+            quantize_vector_scratch(&input->Q[q * D],
+                                    &q_plus[q * D],
+                                    &q_minus[q * D],
+                                    x, D, scratch_idx, scratch_abs);
+        }
+
+        _mm_free(scratch_abs);
+        free(scratch_idx);
     }
 
-    MATRIX pivot_plus  = checked_alloc(h * D * sizeof(type));
-    MATRIX pivot_minus = checked_alloc(h * D * sizeof(type));
+    MATRIX pivot_plus  = (type*)checked_alloc(h * D * sizeof(type));
+    MATRIX pivot_minus = (type*)checked_alloc(h * D * sizeof(type));
 
     for(int j = 0; j < h; j++){
         int p = input->P[j];
@@ -542,108 +376,214 @@ void predict(params* input) {
         memcpy(&pivot_minus[j * D], &input->ds_minus[p * D], D * sizeof(type));
     }
 
-    // RICERCA KNN PARALLELIZZATA con Max-Heap
+    // PARALLELIZZAZIONE K-NN: ogni query è indipendente
     #pragma omp parallel
     {
-        MaxHeap heap;
-        heap_init(&heap, k);
+        // Thread-local structures
+        neighbor* knn = (neighbor*)malloc(k * sizeof(neighbor));
         type* qpivot = (type*)malloc(h * sizeof(type));
+        
+        if (!knn || !qpivot) {
+            printf("ERRORE: alloc knn/qpivot (thread %d)\n", omp_get_thread_num());
+            exit(1);
+        }
 
-        #pragma omp for schedule(dynamic, 4)
+        #pragma omp for schedule(dynamic, 10)
         for(int q = 0; q < nq; q++){
-            // Reset heap per nuova query
-            heap.size = 0;
-            for(int i = 0; i < k; i++) {
-                heap.heap[i].id = -1;
-                heap.heap[i].dist = DBL_MAX;
+            
+            for(int i = 0; i < k; i++){
+                knn[i].id = -1;
+                knn[i].dist = DBL_MAX;
             }
 
+            type* qplus_q  = &q_plus[q * D];
+            type* qminus_q = &q_minus[q * D];
+
             for(int j = 0; j < h; j++){
-                qpivot[j] = approx_distance(
-                    &q_plus[q*D], 
-                    &q_minus[q*D],
-                    &pivot_plus[j*D], 
-                    &pivot_minus[j*D],
+                qpivot[j] = approx_distance_sel(
+                    qplus_q, qminus_q,
+                    &pivot_plus[j * D], &pivot_minus[j * D],
                     D
                 );
             }
 
-            type* qplus_q = &q_plus[q*D];
-            type* qminus_q = &q_minus[q*D];
+            type worst_dist = DBL_MAX;
+            int  worst_idx  = 0;
+
+            int v = 0;
             
-            const int PREFETCH_DIST = 16;
-            
-            for(int v = 0; v < N; v++){
-                if(v % PREFETCH_DIST == 0 && v + PREFETCH_DIST < N) {
-                    __builtin_prefetch(&input->ds_plus[(v + PREFETCH_DIST) * D], 0, 3);
-                    __builtin_prefetch(&input->ds_minus[(v + PREFETCH_DIST) * D], 0, 3);
-                    __builtin_prefetch(&input->index[(v + PREFETCH_DIST) * h], 0, 3);
+            // Loop unrolled x4
+            for (; v <= N - 4; v += 4) {
+                // v+0
+                type* idx_v0 = &input->index[(size_t)(v+0) * (size_t)h];
+                type LB0 = compute_lower_bound_sel(idx_v0, qpivot, h);
+                if (LB0 < worst_dist) {
+                    type* vplus_v0  = &input->ds_plus[(size_t)(v+0) * (size_t)D];
+                    type* vminus_v0 = &input->ds_minus[(size_t)(v+0) * (size_t)D];
+                    type d0 = approx_distance_sel(qplus_q, qminus_q, vplus_v0, vminus_v0, D);
+                    if (d0 < worst_dist) {
+                        knn[worst_idx].id = v+0;
+                        knn[worst_idx].dist = d0;
+                        worst_dist = knn[0].dist; worst_idx = 0;
+                        for (int i = 1; i < k; i++) {
+                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
+                        }
+                    }
                 }
 
-                type worst_dist = heap_max_dist(&heap);
-                type* idx_v = &input->index[v*h];
-                type LB = compute_lower_bound(idx_v, qpivot, h);
-
-                if(LB >= worst_dist) {
-                    continue;
+                // v+1
+                type* idx_v1 = &input->index[(size_t)(v+1) * (size_t)h];
+                type LB1 = compute_lower_bound_sel(idx_v1, qpivot, h);
+                if (LB1 < worst_dist) {
+                    type* vplus_v1  = &input->ds_plus[(size_t)(v+1) * (size_t)D];
+                    type* vminus_v1 = &input->ds_minus[(size_t)(v+1) * (size_t)D];
+                    type d1 = approx_distance_sel(qplus_q, qminus_q, vplus_v1, vminus_v1, D);
+                    if (d1 < worst_dist) {
+                        knn[worst_idx].id = v+1;
+                        knn[worst_idx].dist = d1;
+                        worst_dist = knn[0].dist; worst_idx = 0;
+                        for (int i = 1; i < k; i++) {
+                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
+                        }
+                    }
                 }
 
-                type* vplus_v = &input->ds_plus[v*D];
-                type* vminus_v = &input->ds_minus[v*D];
-                
-                type d_approx = approx_distance(qplus_q, qminus_q, vplus_v, vminus_v, D);
+                // v+2
+                type* idx_v2 = &input->index[(size_t)(v+2) * (size_t)h];
+                type LB2 = compute_lower_bound_sel(idx_v2, qpivot, h);
+                if (LB2 < worst_dist) {
+                    type* vplus_v2  = &input->ds_plus[(size_t)(v+2) * (size_t)D];
+                    type* vminus_v2 = &input->ds_minus[(size_t)(v+2) * (size_t)D];
+                    type d2 = approx_distance_sel(qplus_q, qminus_q, vplus_v2, vminus_v2, D);
+                    if (d2 < worst_dist) {
+                        knn[worst_idx].id = v+2;
+                        knn[worst_idx].dist = d2;
+                        worst_dist = knn[0].dist; worst_idx = 0;
+                        for (int i = 1; i < k; i++) {
+                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
+                        }
+                    }
+                }
 
-                heap_try_insert(&heap, v, d_approx);
+                // v+3
+                type* idx_v3 = &input->index[(size_t)(v+3) * (size_t)h];
+                type LB3 = compute_lower_bound_sel(idx_v3, qpivot, h);
+                if (LB3 < worst_dist) {
+                    type* vplus_v3  = &input->ds_plus[(size_t)(v+3) * (size_t)D];
+                    type* vminus_v3 = &input->ds_minus[(size_t)(v+3) * (size_t)D];
+                    type d3 = approx_distance_sel(qplus_q, qminus_q, vplus_v3, vminus_v3, D);
+                    if (d3 < worst_dist) {
+                        knn[worst_idx].id = v+3;
+                        knn[worst_idx].dist = d3;
+                        worst_dist = knn[0].dist; worst_idx = 0;
+                        for (int i = 1; i < k; i++) {
+                            if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
+                        }
+                    }
+                }
             }
 
-            // RAFFINAMENTO con distanze euclidee esatte
+            // Remainder
+            for (; v < N; v++) {
+                type* idx_v = &input->index[(size_t)v * (size_t)h];
+                type LB = compute_lower_bound_sel(idx_v, qpivot, h);
+                if (LB >= worst_dist) continue;
+
+                type* vplus_v  = &input->ds_plus[(size_t)v * (size_t)D];
+                type* vminus_v = &input->ds_minus[(size_t)v * (size_t)D];
+                type d_approx = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
+                if (d_approx < worst_dist) {
+                    knn[worst_idx].id = v;
+                    knn[worst_idx].dist = d_approx;
+                    worst_dist = knn[0].dist; worst_idx = 0;
+                    for (int i = 1; i < k; i++) {
+                        if (knn[i].dist > worst_dist) { worst_dist = knn[i].dist; worst_idx = i; }
+                    }
+                }
+            }
+
+            // ========== FALLBACK SCAN: garantisce sempre k vicini ==========
+            int valid_neighbors = 0;
+            for(int i = 0; i < k; i++) {
+                if(knn[i].id >= 0) valid_neighbors++;
+            }
+
+            if(valid_neighbors < k) {
+                for(int v = 0; v < N; v++) {
+                    // Salta se già presente nei knn
+                    bool already_in = false;
+                    for(int i = 0; i < k; i++) {
+                        if(knn[i].id == v) {
+                            already_in = true;
+                            break;
+                        }
+                    }
+                    if(already_in) continue;
+                    
+                    type* vplus_v  = &input->ds_plus[(size_t)v * (size_t)D];
+                    type* vminus_v = &input->ds_minus[(size_t)v * (size_t)D];
+                    type d_approx = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
+                    
+                    // Inserisci SOLO se c'è uno slot vuoto o se è migliore del peggiore
+                    if(knn[worst_idx].id < 0) {
+                        // Slot vuoto: inserisci direttamente
+                        knn[worst_idx].id = v;
+                        knn[worst_idx].dist = d_approx;
+                        valid_neighbors++;
+                        
+                        // Aggiorna worst
+                        worst_dist = knn[0].dist; 
+                        worst_idx = 0;
+                        for (int i = 1; i < k; i++) {
+                            if (knn[i].id < 0 || knn[i].dist > worst_dist) { 
+                                worst_dist = knn[i].dist; 
+                                worst_idx = i; 
+                            }
+                        }
+                        
+                        if(valid_neighbors >= k) break;
+                    } else if(d_approx < worst_dist) {
+                        // Migliore del peggiore: sostituisci
+                        knn[worst_idx].id = v;
+                        knn[worst_idx].dist = d_approx;
+                        
+                        // Aggiorna worst
+                        worst_dist = knn[0].dist; 
+                        worst_idx = 0;
+                        for (int i = 1; i < k; i++) {
+                            if (knn[i].dist > worst_dist) { 
+                                worst_dist = knn[i].dist; 
+                                worst_idx = i; 
+                            }
+                        }
+                    }
+                }
+            }
+            // ========== FINE FALLBACK SCAN ==========
+
+            // Refinement
             type* query_base = &input->Q[q * D];
-            
-            for(int i = 0; i < heap.size; i++){
-                if(heap.heap[i].id >= 0) {
-                    heap.heap[i].dist = euclidean_distance(
+            for(int i = 0; i < k; i++){
+                if(knn[i].id >= 0) {
+                    knn[i].dist = euclidean_distance_sel(
                         query_base,
-                        &input->DS[heap.heap[i].id * D],
+                        &input->DS[knn[i].id * D],
                         D
                     );
                 }
             }
 
-            // Ri-heapify dopo raffinamento - O(k)
-            for(int i = heap.size / 2 - 1; i >= 0; i--) {
-                heap_sift_down(&heap, i);
-            }
-
-            // HEAP SORT - Estrazione ordinata in O(k log k)
-            int original_size = heap.size;
-
-            // Estrai in ordine decrescente (max-heap)
-            for(int i = original_size - 1; i > 0; i--) {
-                heap_swap(&heap.heap[0], &heap.heap[i]);
-                heap.size--;
-                heap_sift_down(&heap, 0);
-            }
-
-            // Inverti per ordine crescente
-            for(int i = 0; i < original_size / 2; i++) {
-                heap_swap(&heap.heap[i], &heap.heap[original_size - 1 - i]);
-            }
-
-            // Salvataggio risultati
+            // Salvataggio (thread-safe: ogni query scrive in zone diverse)
             for(int i = 0; i < k; i++){
-                if(i < original_size) {
-                    input->id_nn[q*k + i]   = heap.heap[i].id;
-                    input->dist_nn[q*k + i] = heap.heap[i].dist;
-                } else {
-                    input->id_nn[q*k + i]   = -1;
-                    input->dist_nn[q*k + i] = DBL_MAX;
-                }
+                input->id_nn[q * k + i]   = knn[i].id;
+                input->dist_nn[q * k + i] = knn[i].dist;
             }
         }
 
         free(qpivot);
-        heap_free(&heap);
-    }
+        free(knn);
+        
+    } // fine parallel
 
     _mm_free(q_plus);
     _mm_free(q_minus);
@@ -651,7 +591,7 @@ void predict(params* input) {
     _mm_free(pivot_minus);
 
     if(!input->silent) {
-        printf("DEBUG: PREDICT COMPLETATO (OpenMP + Max-Heap + Quickselect)\n");
+        printf("PREDICT COMPLETATO.\n");
         fflush(stdout);
     }
 }

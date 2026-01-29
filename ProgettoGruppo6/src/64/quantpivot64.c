@@ -7,9 +7,49 @@
 #include <float.h>
 #include "common.h"
 
-#define USE_ASM_APPROX 1
-#define USE_ASM_EUCLIDEAN 1
-#define USE_ASM_LOWER_BOUND 1
+#ifdef USE_ASM_APPROX
+extern double approx_distance_asm(const double* vplus, const double* vminus,
+                                  const double* wplus, const double* wminus,
+                                  int D);
+#endif
+#ifdef USE_ASM_EUCLIDEAN
+extern double euclidean_distance_asm(const double* v, const double* w, int D);
+#endif
+#ifdef USE_ASM_LOWER_BOUND
+extern double compute_lower_bound_asm(const double* idx_v, const double* qpivot, int h);
+#endif
+
+// Prototipi funzioni C baseline
+double approx_distance(const double* vplus, const double* vminus, const double* wplus, const double* wminus, int D);
+double euclidean_distance(const double* v, const double* w, int D);
+double compute_lower_bound(const double* idx_v, const double* qpivot, int h);
+
+// Wrapper selettivi: compile-time switch
+static inline double approx_distance_sel(const double* vplus, const double* vminus,
+                                         const double* wplus, const double* wminus,
+                                         int D) {
+#if defined(USE_ASM_APPROX)
+    return approx_distance_asm(vplus, vminus, wplus, wminus, D);
+#else
+    return approx_distance(vplus, vminus, wplus, wminus, D);
+#endif
+}
+
+static inline double euclidean_distance_sel(const double* v, const double* w, int D) {
+#if defined(USE_ASM_EUCLIDEAN)
+    return euclidean_distance_asm(v, w, D);
+#else
+    return euclidean_distance(v, w, D);
+#endif
+}
+
+static inline double compute_lower_bound_sel(const double* idx_v, const double* qpivot, int h) {
+#if defined(USE_ASM_LOWER_BOUND)
+    return compute_lower_bound_asm(idx_v, qpivot, h);
+#else
+    return compute_lower_bound(idx_v, qpivot, h);
+#endif
+}
 #define PREFETCH_DIST 16  // Distanza di prefetching
 
 extern double approx_distance_asm(const double* vplus, const double* vminus,
@@ -21,7 +61,7 @@ extern double euclidean_distance_asm(const double* v, const double* w, int D);
 extern double compute_lower_bound_asm(const double* idx_v, const double* qpivot, int h);
 
 void* checked_alloc(size_t size) {
-    void* p = _mm_malloc(size, align);
+    void* p = _mm_malloc(size, 32);  // AVX: 32-byte alignment forzato per performance
     if (!p) {
         printf("ERRORE: impossibile allocare %lu bytes\n", size);
         fflush(stdout);
@@ -182,21 +222,8 @@ static inline void quantize_vector_scratch(const type* v,
     if(x <= 0) return;
     if(x > D) x = D;
 
-    // Calcolo valori assoluti con AVX
-    int i = 0;
-    __m256d sign_mask = _mm256_set1_pd(-0.0);
-    
-    for(; i <= D - 4; i += 4) {
-        __m256d vals = _mm256_loadu_pd(&v[i]);
-        __m256d abs_v = _mm256_andnot_pd(sign_mask, vals);
-        _mm256_storeu_pd(&abs_vals[i], abs_v);
-        indices[i] = i;
-        indices[i+1] = i+1;
-        indices[i+2] = i+2;
-        indices[i+3] = i+3;
-    }
-    
-    for(; i < D; i++) {
+    // C puro - calcola valori assoluti
+    for(int i = 0; i < D; i++) {
         indices[i] = i;
         abs_vals[i] = fabs(v[i]);
     }
@@ -245,45 +272,17 @@ void quantize_vector(type* v, type* vplus, type* vminus, int x, int D) {
 // DISTANZE OTTIMIZZATE AVX
 // ==============================
 
-type approx_distance_c(type* vplus, type* vminus, type* wplus, type* wminus, int D) {
-    __m256d sum_pp = _mm256_setzero_pd();
-    __m256d sum_mm = _mm256_setzero_pd();
-    __m256d sum_pm = _mm256_setzero_pd();
-    __m256d sum_mp = _mm256_setzero_pd();
-    
-    int i = 0;
-    for(; i <= D - 4; i += 4) {
-        __m256d vp = _mm256_loadu_pd(&vplus[i]);
-        __m256d vm = _mm256_loadu_pd(&vminus[i]);
-        __m256d wp = _mm256_loadu_pd(&wplus[i]);
-        __m256d wm = _mm256_loadu_pd(&wminus[i]);
-        
-        sum_pp = _mm256_add_pd(sum_pp, _mm256_mul_pd(vp, wp));        
-        sum_mm = _mm256_add_pd(sum_mm, _mm256_mul_pd(vm, wm));
-        sum_pm = _mm256_add_pd(sum_pm, _mm256_mul_pd(vp, wm));
-        sum_mp = _mm256_add_pd(sum_mp, _mm256_mul_pd(vm, wp));
-    }
-    
-    double temp[4] __attribute__((aligned(32)));
-    _mm256_store_pd(temp, sum_pp);
-    type dot_pp = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    _mm256_store_pd(temp, sum_mm);
-    type dot_mm = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    _mm256_store_pd(temp, sum_pm);
-    type dot_pm = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    _mm256_store_pd(temp, sum_mp);
-    type dot_mp = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    for(; i < D; i++) {
+type approx_distance_c(const type* vplus, const type* vminus, const type* wplus, const type* wminus, int D) {
+    type dot_pp = 0.0;
+    type dot_mm = 0.0;
+    type dot_pm = 0.0;
+    type dot_mp = 0.0;
+    for (int i = 0; i < D; i++) {
         dot_pp += vplus[i] * wplus[i];
         dot_mm += vminus[i] * wminus[i];
         dot_pm += vplus[i] * wminus[i];
         dot_mp += vminus[i] * wplus[i];
     }
-    
     return dot_pp + dot_mm - dot_pm - dot_mp;
 }
 
@@ -295,43 +294,20 @@ double approx_distance(const double* vplus, const double* vminus,
     if (D <= 0) return 0.0;
     return approx_distance_asm(vplus, vminus, wplus, wminus, D);
 #else
-    return approx_distance_c((double*)vplus, (double*)vminus, (double*)wplus, (double*)wminus, D);
+    return approx_distance_c(vplus, vminus, wplus, wminus, D);
 #endif
 }
 
-type euclidean_distance_c(type* v, type* w, int D) {
-    __m256d sum0 = _mm256_setzero_pd();
-    __m256d sum1 = _mm256_setzero_pd();
-    
-    int i = 0;
-    for(; i <= D - 8; i += 8) {
-        __m256d v0 = _mm256_loadu_pd(&v[i]);
-        __m256d w0 = _mm256_loadu_pd(&w[i]);
-        __m256d v1 = _mm256_loadu_pd(&v[i+4]);
-        __m256d w1 = _mm256_loadu_pd(&w[i+4]);
-        
-        __m256d diff0 = _mm256_sub_pd(v0, w0);
-        __m256d diff1 = _mm256_sub_pd(v1, w1);
-        
-        sum0 = _mm256_add_pd(sum0, _mm256_mul_pd(diff0, diff0));
-        sum1 = _mm256_add_pd(sum1, _mm256_mul_pd(diff1, diff1));
+type euclidean_distance_c(const type* v, const type* w, int D) {
+    type sum_sq = 0.0;
+    for (int i = 0; i < D; i++) {
+        type diff = v[i] - w[i];
+        sum_sq += diff * diff;
     }
-    
-    __m256d sum = _mm256_add_pd(sum0, sum1);  // combina accumulatori
-    
-    double temp[4] __attribute__((aligned(32)));
-    _mm256_store_pd(temp, sum);
-    type result = temp[0] + temp[1] + temp[2] + temp[3];
-    
-    for(; i < D; i++) {
-        type d = v[i] - w[i];
-        result += d * d;
-    }
-    
-    return sqrt(result);
+    return sqrt(sum_sq);
 }
 
-type euclidean_distance(type* v, type* w, int D) {
+type euclidean_distance(const type* v, const type* w, int D) {
 #ifdef USE_ASM_EUCLIDEAN
     if (D <= 0) return 0.0;
     return euclidean_distance_asm(v, w, D);
@@ -340,54 +316,18 @@ type euclidean_distance(type* v, type* w, int D) {
 #endif
 }
 
-type compute_lower_bound_c(type* idx_v, type* qpivot, int h) {
-    type LB = 0.0;
-    
-    __m256d max_lb = _mm256_setzero_pd();
-    __m256d sign_mask = _mm256_set1_pd(-0.0);
-    
-    int j = 0;
-
-    for(; j <= h - 8; j += 8) {
-        __m256d iv0 = _mm256_loadu_pd(&idx_v[j]);
-        __m256d qp0 = _mm256_loadu_pd(&qpivot[j]);
-        __m256d iv1 = _mm256_loadu_pd(&idx_v[j+4]);
-        __m256d qp1 = _mm256_loadu_pd(&qpivot[j+4]);
-        
-        __m256d diff0 = _mm256_sub_pd(iv0, qp0);
-        __m256d diff1 = _mm256_sub_pd(iv1, qp1);
-        
-        __m256d abs0 = _mm256_andnot_pd(sign_mask, diff0);
-        __m256d abs1 = _mm256_andnot_pd(sign_mask, diff1);
-        
-        max_lb = _mm256_max_pd(max_lb, abs0);
-        max_lb = _mm256_max_pd(max_lb, abs1);
-    }
-
-    for(; j <= h - 4; j += 4) {
-        __m256d iv = _mm256_loadu_pd(&idx_v[j]);
-        __m256d qp = _mm256_loadu_pd(&qpivot[j]);
-        __m256d diff = _mm256_sub_pd(iv, qp);
-        __m256d abs_diff = _mm256_andnot_pd(sign_mask, diff);
-        max_lb = _mm256_max_pd(max_lb, abs_diff);
-    }
-    
-    double temp[4] __attribute__((aligned(32)));
-    _mm256_store_pd(temp, max_lb);
-    LB = temp[0];
-    if(temp[1] > LB) LB = temp[1];
-    if(temp[2] > LB) LB = temp[2];
-    if(temp[3] > LB) LB = temp[3];
-    
-    for(; j < h; j++) {
+type compute_lower_bound_c(const type* idx_v, const type* qpivot, int h) {
+    type max_lb = 0.0;
+    for (int j = 0; j < h; j++) {
         type diff = fabs(idx_v[j] - qpivot[j]);
-        if(diff > LB) LB = diff;
+        if (diff > max_lb) {
+            max_lb = diff;
+        }
     }
-    
-    return LB;
+    return max_lb;
 }
 
-type compute_lower_bound(type* idx_v, type* qpivot, int h) {
+type compute_lower_bound(const type* idx_v, const type* qpivot, int h) {
 #ifdef USE_ASM_LOWER_BOUND
     if (h <= 0) return 0.0;
     return compute_lower_bound_asm(idx_v, qpivot, h);
@@ -419,32 +359,21 @@ static inline type compute_lower_bound_thresh(const type* idx_v,
 
 void fit(params* input) {
     if(!input->silent) {
-        printf("DEBUG: Entrato in fit() OTTIMIZZATO (AVX)\n");
+        #if defined(USE_ASM_APPROX) || defined(USE_ASM_EUCLIDEAN) || defined(USE_ASM_LOWER_BOUND)
+            printf("FIT: ASM version\n");
+            printf("[DEBUG] approx_distance: versione ASM AVX attiva\n");
+            printf("[DEBUG] euclidean_distance: versione ASM AVX attiva\n");
+            printf("[DEBUG] lower_bound: versione ASM AVX attiva\n");
+        #else
+            printf("FIT: C version\n");
+            printf("[DEBUG] approx_distance: versione C baseline attiva\n");
+            printf("[DEBUG] euclidean_distance: versione C baseline attiva\n");
+            printf("[DEBUG] lower_bound: versione C baseline attiva\n");
+        #endif
+        printf("[OPTIMIZATION] Quantizzazione: Quickselect O(D)\n");
+        printf("[OPTIMIZATION] KNN Search: Max-Heap O(log k)\n");
         fflush(stdout);
     }
-    
-    #ifndef USE_ASM_APPROX
-        printf("[DEBUG] approx_distance: versione C baseline AVX attiva\n");
-    #else
-        printf("[DEBUG] approx_distance: versione ASM AVX attiva (unrolling x4)\n");
-    #endif
-    
-    #ifndef USE_ASM_EUCLIDEAN
-        printf("[DEBUG] euclidean_distance: versione C baseline AVX attiva\n");
-    #else
-        printf("[DEBUG] euclidean_distance: versione ASM AVX attiva (unrolling x4)\n");
-    #endif
-    
-    #ifndef USE_ASM_LOWER_BOUND
-        printf("[DEBUG] lower_bound: versione C AVX attiva\n");
-    #else
-        printf("[DEBUG] lower_bound: versione ASM AVX attiva\n");
-    #endif
-    
-    printf("[OPTIMIZATION] Quantizzazione: Quickselect O(D)\n");
-    printf("[OPTIMIZATION] KNN Search: Max-Heap O(log k)\n");
-    
-    fflush(stdout);
 
     if (input->first_fit_call == false) {
         if(!input->silent) printf("DEBUG: Prima chiamata a fit(), inizializzo puntatori...\n");
@@ -544,7 +473,7 @@ void fit(params* input) {
         for(int j = 0; j < h; j++){
             int pivot_idx = input->P[j];
 
-            input->index[i*h + j] = approx_distance(
+            input->index[i*h + j] = approx_distance_sel(
                 &input->ds_plus[i * D],    
                 &input->ds_minus[i * D],
                 &input->ds_plus[pivot_idx * D], 
@@ -563,7 +492,11 @@ void fit(params* input) {
 
 void predict(params* input) {
     if(!input->silent) {
-        printf("DEBUG: Entrato in predict() OTTIMIZZATO (AVX + Batch)\n");
+        #if defined(USE_ASM_APPROX) || defined(USE_ASM_EUCLIDEAN) || defined(USE_ASM_LOWER_BOUND)
+            printf("PREDICT: ASM version\n");
+        #else
+            printf("PREDICT: C version\n");
+        #endif
         fflush(stdout);
     }
 
@@ -643,7 +576,7 @@ void predict(params* input) {
 
         // Precalcolo distanze query-pivot
         for(int j = 0; j < h; j++){
-            qpivot[j] = approx_distance(
+            qpivot[j] = approx_distance_sel(
                 qplus_q, qminus_q,
                 &pivot_plus[j * D], &pivot_minus[j * D],
                 D
@@ -654,26 +587,34 @@ void predict(params* input) {
         int  worst_idx  = 0;
 
         // ============================================================
-        // SCANSIONE DATASET - LOOP UNROLLING x4 (come versione 32-bit)
+        // SCANSIONE DATASET - LOOP UNROLLING x4 + BATCH PREFETCH
         // ============================================================
         
         int v = 0;
         
+        // Batch prefetch aggressivo per le prime 64 iterazioni
+        for (int pf = 0; pf < 64 && pf < N; pf++) {
+            __builtin_prefetch(&input->index[(size_t)pf * (size_t)h], 0, 0);
+            __builtin_prefetch(&input->ds_plus[(size_t)pf * (size_t)D], 0, 0);
+            __builtin_prefetch(&input->ds_minus[(size_t)pf * (size_t)D], 0, 0);
+        }
+        
         // Loop unrolled x4 - processa 4 candidati per iterazione
         for (; v <= N - 4; v += 4) {
-            // Prefetch per le prossime 4 iterazioni
-            if (v + 12 < N) {
-                __builtin_prefetch(&input->index[(size_t)(v+12) * (size_t)h], 0, 1);
-                __builtin_prefetch(&input->ds_plus[(size_t)(v+12) * (size_t)D], 0, 1);
+            // Prefetch continuo per mantenere pipeline piena
+            if (v + 64 < N) {
+                __builtin_prefetch(&input->index[(size_t)(v+64) * (size_t)h], 0, 0);
+                __builtin_prefetch(&input->ds_plus[(size_t)(v+64) * (size_t)D], 0, 0);
+                __builtin_prefetch(&input->ds_minus[(size_t)(v+64) * (size_t)D], 0, 0);
             }
 
             // --- Candidato v+0 ---
             type* idx_v0 = &input->index[(size_t)(v+0) * (size_t)h];
-            type LB0 = compute_lower_bound(idx_v0, qpivot, h);
+            type LB0 = compute_lower_bound_sel(idx_v0, qpivot, h);
             if (LB0 < worst_dist) {
                 type* vplus_v0  = &input->ds_plus[(size_t)(v+0) * (size_t)D];
                 type* vminus_v0 = &input->ds_minus[(size_t)(v+0) * (size_t)D];
-                type d0 = approx_distance(qplus_q, qminus_q, vplus_v0, vminus_v0, D);
+                type d0 = approx_distance_sel(qplus_q, qminus_q, vplus_v0, vminus_v0, D);
                 if (d0 < worst_dist) {
                     knn[worst_idx].id = v+0;
                     knn[worst_idx].dist = d0;
@@ -686,11 +627,11 @@ void predict(params* input) {
 
             // --- Candidato v+1 ---
             type* idx_v1 = &input->index[(size_t)(v+1) * (size_t)h];
-            type LB1 = compute_lower_bound(idx_v1, qpivot, h);
+            type LB1 = compute_lower_bound_sel(idx_v1, qpivot, h);
             if (LB1 < worst_dist) {
                 type* vplus_v1  = &input->ds_plus[(size_t)(v+1) * (size_t)D];
                 type* vminus_v1 = &input->ds_minus[(size_t)(v+1) * (size_t)D];
-                type d1 = approx_distance(qplus_q, qminus_q, vplus_v1, vminus_v1, D);
+                type d1 = approx_distance_sel(qplus_q, qminus_q, vplus_v1, vminus_v1, D);
                 if (d1 < worst_dist) {
                     knn[worst_idx].id = v+1;
                     knn[worst_idx].dist = d1;
@@ -703,11 +644,11 @@ void predict(params* input) {
 
             // --- Candidato v+2 ---
             type* idx_v2 = &input->index[(size_t)(v+2) * (size_t)h];
-            type LB2 = compute_lower_bound(idx_v2, qpivot, h);
+            type LB2 = compute_lower_bound_sel(idx_v2, qpivot, h);
             if (LB2 < worst_dist) {
                 type* vplus_v2  = &input->ds_plus[(size_t)(v+2) * (size_t)D];
                 type* vminus_v2 = &input->ds_minus[(size_t)(v+2) * (size_t)D];
-                type d2 = approx_distance(qplus_q, qminus_q, vplus_v2, vminus_v2, D);
+                type d2 = approx_distance_sel(qplus_q, qminus_q, vplus_v2, vminus_v2, D);
                 if (d2 < worst_dist) {
                     knn[worst_idx].id = v+2;
                     knn[worst_idx].dist = d2;
@@ -720,11 +661,11 @@ void predict(params* input) {
 
             // --- Candidato v+3 ---
             type* idx_v3 = &input->index[(size_t)(v+3) * (size_t)h];
-            type LB3 = compute_lower_bound(idx_v3, qpivot, h);
+            type LB3 = compute_lower_bound_sel(idx_v3, qpivot, h);
             if (LB3 < worst_dist) {
                 type* vplus_v3  = &input->ds_plus[(size_t)(v+3) * (size_t)D];
                 type* vminus_v3 = &input->ds_minus[(size_t)(v+3) * (size_t)D];
-                type d3 = approx_distance(qplus_q, qminus_q, vplus_v3, vminus_v3, D);
+                type d3 = approx_distance_sel(qplus_q, qminus_q, vplus_v3, vminus_v3, D);
                 if (d3 < worst_dist) {
                     knn[worst_idx].id = v+3;
                     knn[worst_idx].dist = d3;
@@ -739,12 +680,12 @@ void predict(params* input) {
         // Coda: elementi rimanenti (N non multiplo di 4)
         for (; v < N; v++) {
             type* idx_v = &input->index[(size_t)v * (size_t)h];
-            type LB = compute_lower_bound(idx_v, qpivot, h);
+            type LB = compute_lower_bound_sel(idx_v, qpivot, h);
             if (LB >= worst_dist) continue;
 
             type* vplus_v  = &input->ds_plus[(size_t)v * (size_t)D];
             type* vminus_v = &input->ds_minus[(size_t)v * (size_t)D];
-            type d_approx = approx_distance(qplus_q, qminus_q, vplus_v, vminus_v, D);
+            type d_approx = approx_distance_sel(qplus_q, qminus_q, vplus_v, vminus_v, D);
             if (d_approx < worst_dist) {
                 knn[worst_idx].id = v;
                 knn[worst_idx].dist = d_approx;
@@ -762,7 +703,7 @@ void predict(params* input) {
         type* query_base = &input->Q[q * D];
         for(int i = 0; i < k; i++){
             if(knn[i].id >= 0) {
-                knn[i].dist = euclidean_distance(
+                knn[i].dist = euclidean_distance_sel(
                     query_base,
                     &input->DS[knn[i].id * D],
                     D
@@ -787,9 +728,4 @@ void predict(params* input) {
     _mm_free(q_minus);
     _mm_free(pivot_plus);
     _mm_free(pivot_minus);
-
-    if(!input->silent) {
-        printf("DEBUG: PREDICT COMPLETATO (Batch + AVX)\n");
-        fflush(stdout);
-    }
 }

@@ -138,5 +138,7 @@ if __name__ == "__main__":
         print(prd_time)
 
     # Salvataggio risultati
-    save_ds2(ids, f"idNN_{args.t}_size-{DS.shape[0]}x{DS.shape[1]}_nq-{Q.shape[0]}.ds2", dtype = f'float{args.t}')
-    save_ds2(dists, f"distNN_{args.t}_size-{DS.shape[0]}x{DS.shape[1]}_nq-{Q.shape[0]}.ds2", dtype = f'float{args.t}')
+    # IMPORTANTE: gli ID devono essere salvati come int32 (4 byte), non float!
+    bits_str = args.t.replace('omp', '')  # '64omp' -> '64'
+    save_ds2(ids, f"idNN_{args.t}_size-{DS.shape[0]}x{DS.shape[1]}_nq-{Q.shape[0]}.ds2", dtype='int32')
+    save_ds2(dists, f"distNN_{args.t}_size-{DS.shape[0]}x{DS.shape[1]}_nq-{Q.shape[0]}.ds2", dtype=f'float{bits_str}')

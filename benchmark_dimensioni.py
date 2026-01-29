@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 BENCHMARK DIMENSIONI - Progetto QuantPivot Gruppo 6
-Esegue test su dataset con diverse dimensioni (N×D) per tutte e 3 le versioni.
-Genera dataset al volo e usa direttamente le librerie Python.
+Esegue test su dataset con diverse dimensioni (N×D).
+Testa sia C puro che ASM per ogni versione (6 configurazioni totali).
+Formato: 3 righe (32, 64, 64omp) × 2 colonne (C, ASM)
 """
 
 import sys
@@ -10,14 +11,13 @@ import os
 import time
 import numpy as np
 import pyfftw
+import subprocess
 
 # Configurazione - Dimensioni da testare (N, D)
 DIMENSION_CONFIGS = [
-    (1024, 512),
-    (2048, 1024),
-    (4096, 2048),
-    (8192, 4096),
-    (12480, 5120),  # Corretto a 12480 per essere multiplo di 32
+    (2000, 256),
+    (5000, 512),
+    (10000, 1024),
 ]
 
 # Parametri fissi
@@ -25,11 +25,14 @@ H = 16
 K = 8
 X = 64
 
-# Risultati: {(n, d): {version: (fit, prd)}}
+# Risultati: {(n, d): {version_variant: (fit, prd)}}
+# version_variant: "32_C", "32_ASM", "64_C", "64_ASM", "64omp_C", "64omp_ASM"
 results = {}
 
 def format_dim(n, d):
     """Formatta dimensione in formato leggibile."""
+    if n >= 1000:
+        return f"{n//1000}K×{d}"
     return f"{n}×{d}"
 
 def generate_dataset(n, d, dtype, alignment):
@@ -38,252 +41,275 @@ def generate_dataset(n, d, dtype, alignment):
     data[:] = np.random.randn(n, d).astype(dtype)
     return data
 
-def run_test_32(dataset, query):
-    """Esegue test versione 32-bit."""
+def rebuild_module(version, use_asm):
+    """Ricompila modulo con/senza ASM."""
+    env = os.environ.copy()
+    env["NATIVE"] = "1"  # Ottimizzazioni aggressive
+    
+    if version == "32":
+        env["USE_ASM_32"] = "1" if use_asm else "0"
+    elif version == "64":
+        env["USE_ASM_64"] = "1" if use_asm else "0"
+    elif version == "64omp":
+        env["USE_ASM_OMP"] = "1" if use_asm else "0"
+    
+    # Rimuovi moduli cached
+    to_remove = [k for k in sys.modules.keys() if 'quantpivot' in k.lower()]
+    for key in to_remove:
+        del sys.modules[key]
+    
+    # Ricompila
+    os.chdir("ProgettoGruppo6")
+    result = subprocess.run(
+        ["python3", "setup.py", "build_ext", "--inplace"],
+        env=env,
+        capture_output=True,
+        text=True
+    )
+    os.chdir("..")
+    
+    if result.returncode != 0:
+        print(f"ERRORE compilazione {version} {'ASM' if use_asm else 'C'}:")
+        print(result.stderr)
+        return False
+    return True
+
+def run_test_32(dataset, query, use_asm):
+    """Esegue test versione 32-bit (C o ASM)."""
     try:
+        if not rebuild_module("32", use_asm):
+            return None
+        
         from gruppo6.quantpivot32 import QuantPivot
         
         model = QuantPivot()
         
         start = time.perf_counter()
-        model.fit(dataset, H, X, True)  # silent=True
+        model.fit(dataset, H, X, True)
         fit_time = time.perf_counter() - start
         
         start = time.perf_counter()
-        ids, dists = model.predict(query, K, True)  # silent=True
+        ids, dists = model.predict(query, K, True)
         prd_time = time.perf_counter() - start
         
         return (fit_time, prd_time)
     except Exception as e:
-        print(f"ERRORE 32: {e}")
+        print(f"ERRORE 32 {'ASM' if use_asm else 'C'}: {e}")
         return None
 
-def run_test_64(dataset, query):
-    """Esegue test versione 64-bit."""
+def run_test_64(dataset, query, use_asm):
+    """Esegue test versione 64-bit (C o ASM)."""
     try:
+        if not rebuild_module("64", use_asm):
+            return None
+        
         from gruppo6.quantpivot64 import QuantPivot
         
         model = QuantPivot()
         
         start = time.perf_counter()
-        model.fit(dataset, H, X, True)  # silent=True
+        model.fit(dataset, H, X, True)
         fit_time = time.perf_counter() - start
         
         start = time.perf_counter()
-        ids, dists = model.predict(query, K, True)  # silent=True
+        ids, dists = model.predict(query, K, True)
         prd_time = time.perf_counter() - start
         
         return (fit_time, prd_time)
     except Exception as e:
-        print(f"ERRORE 64: {e}")
+        print(f"ERRORE 64 {'ASM' if use_asm else 'C'}: {e}")
         return None
 
-def run_test_64omp(dataset, query):
-    """Esegue test versione 64-bit OpenMP."""
+def run_test_64omp(dataset, query, use_asm):
+    """Esegue test versione 64-bit OpenMP (C o ASM)."""
     try:
+        if not rebuild_module("64omp", use_asm):
+            return None
+        
         from gruppo6.quantpivot64omp import QuantPivot
         
         model = QuantPivot()
         
         start = time.perf_counter()
-        model.fit(dataset, H, X, True)  # silent=True
+        model.fit(dataset, H, X, True)
         fit_time = time.perf_counter() - start
         
         start = time.perf_counter()
-        ids, dists = model.predict(query, K, True)  # silent=True
+        ids, dists = model.predict(query, K, True)
         prd_time = time.perf_counter() - start
         
         return (fit_time, prd_time)
     except Exception as e:
-        print(f"ERRORE 64omp: {e}")
+        print(f"ERRORE 64omp {'ASM' if use_asm else 'C'}: {e}")
         return None
 
 def print_table():
-    """Stampa tabella riepilogativa."""
+    """Stampa tabella riepilogativa 3×2 (versioni × C/ASM)."""
     
-    print("\n" + "="*90)
+    print("\n" + "="*100)
     print("  BENCHMARK DIMENSIONI - Progetto QuantPivot Gruppo 6")
     print(f"  Parametri: h={H}, k={K}, x={X}")
-    print("="*90)
+    print("="*100)
     
-    # Header
-    print(f"\n{'Dataset':<14} | {'NQ':<6} | {'32-bit SSE':<20} | {'64-bit AVX':<20} | {'64-bit OMP':<20}")
-    print(f"{'(N×D)':<14} | {'':<6} | {'FIT / PRD (sec)':<20} | {'FIT / PRD (sec)':<20} | {'FIT / PRD (sec)':<20}")
-    print("-"*90)
+    for (n, d) in DIMENSION_CONFIGS:
+        key = (n, d)
+        if key not in results:
+            continue
+        
+        label = format_dim(n, d)
+        nq = n  # usa N query come default
+        
+        print(f"\n{'─'*100}")
+        print(f"  DATASET: {label}  (N={n}, D={d}, NQ={nq})")
+        print(f"{'─'*100}")
+        print(f"{'Versione':<15} | {'C Baseline':<38} | {'ASM Optimized':<38}")
+        print(f"{'':<15} | {'FIT (s)':<10} {'PRD (s)':<10} {'TOT (s)':<10} | {'FIT (s)':<10} {'PRD (s)':<10} {'TOT (s)':<10}")
+        print(f"{'-'*15}+{'-'*40}+{'-'*40}")
+        
+        for version, label in [("32", "32-bit SSE"), ("64", "64-bit AVX"), ("64omp", "64-bit OMP")]:
+            row = f"{label:<15} |"
+            
+            # C baseline
+            var_c = f"{version}_C"
+            if var_c in results[key]:
+                res = results[key][var_c]
+                if res:
+                    fit, prd = res
+                    tot = fit + prd
+                    row += f" {fit:>8.3f}  {prd:>8.3f}  {tot:>8.3f}  |"
+                else:
+                    row += f" {'ERRORE':<36} |"
+            else:
+                row += f" {'-':<36} |"
+            
+            # ASM
+            var_asm = f"{version}_ASM"
+            if var_asm in results[key]:
+                res = results[key][var_asm]
+                if res:
+                    fit, prd = res
+                    tot = fit + prd
+                    row += f" {fit:>8.3f}  {prd:>8.3f}  {tot:>8.3f}  "
+                    
+                    # Speedup C→ASM
+                    if var_c in results[key] and results[key][var_c]:
+                        fit_c, prd_c = results[key][var_c]
+                        speedup = (fit_c + prd_c) / (fit + prd)
+                        row += f"[{speedup:.2f}x]"
+                else:
+                    row += f" {'ERRORE':<36}"
+            else:
+                row += f" {'-':<36}"
+            
+            print(row)
+    
+    print("="*100)
+    
+    # Tabella speedup finale
+    print("\n" + "="*60)
+    print("  SPEEDUP SUMMARY")
+    print("="*60)
+    print(f"{'Dataset':<12} | {'32 C→ASM':<12} | {'64 C→ASM':<12} | {'OMP C→ASM':<12}")
+    print("-"*60)
     
     for (n, d) in DIMENSION_CONFIGS:
         key = (n, d)
         if key not in results:
             continue
         label = format_dim(n, d)
-        nq = results[key].get("nq", n)
-        row = f"{label:<14} | {nq:<6} |"
+        row = f"{label:<12} |"
         
         for version in ["32", "64", "64omp"]:
-            if version in results[key]:
-                res = results[key][version]
-                if res is None:
-                    row += f" {'ERRORE':<20}|"
-                elif res == "SKIP":
-                    row += f" {'SKIP (OOM)':<20}|"
+            var_c = f"{version}_C"
+            var_asm = f"{version}_ASM"
+            
+            if var_c in results[key] and var_asm in results[key]:
+                res_c = results[key][var_c]
+                res_asm = results[key][var_asm]
+                if res_c and res_asm:
+                    time_c = sum(res_c)
+                    time_asm = sum(res_asm)
+                    speedup = time_c / time_asm
+                    row += f" {speedup:>10.2f}x |"
                 else:
-                    fit, prd = res
-                    row += f" {fit:>6.2f} / {prd:<10.2f} |"
+                    row += f" {'-':>11} |"
             else:
-                row += f" {'-':<20}|"
+                row += f" {'-':>11} |"
+        
         print(row)
     
-    print("-"*90)
-    
-    # Speedup OMP vs 32-bit
-    print("\nSPEEDUP OpenMP vs 32-bit SSE:")
-    for (n, d) in DIMENSION_CONFIGS:
-        key = (n, d)
-        if key not in results:
-            continue
-        label = format_dim(n, d)
-        if "32" in results[key] and "64omp" in results[key]:
-            res32 = results[key]["32"]
-            res_omp = results[key]["64omp"]
-            if res32 and res_omp and res32 != "SKIP" and res_omp != "SKIP":
-                _, prd32 = res32
-                _, prd_omp = res_omp
-                if prd_omp > 0:
-                    speedup = prd32 / prd_omp
-                    print(f"   {label}: {speedup:.2f}x")
-    
-    # Speedup OMP vs 64-bit
-    print("\nSPEEDUP OpenMP vs 64-bit AVX:")
-    for (n, d) in DIMENSION_CONFIGS:
-        key = (n, d)
-        if key not in results:
-            continue
-        label = format_dim(n, d)
-        if "64" in results[key] and "64omp" in results[key]:
-            res64 = results[key]["64"]
-            res_omp = results[key]["64omp"]
-            if res64 and res_omp and res64 != "SKIP" and res_omp != "SKIP":
-                _, prd64 = res64
-                _, prd_omp = res_omp
-                if prd_omp > 0:
-                    speedup = prd64 / prd_omp
-                    print(f"   {label}: {speedup:.2f}x")
-    
-    print("\n" + "="*90)
+    print("="*60)
 
 def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
-    print("="*90)
-    print("BENCHMARK DIMENSIONI - QuantPivot")
-    print("="*90)
+    print("="*100)
+    print("BENCHMARK DIMENSIONI - QuantPivot (3 versioni × 2 varianti)")
+    print("="*100)
     print(f"Parametri: h={H}, k={K}, x={X}")
     print("Dimensioni testate:")
     for (n, d) in DIMENSION_CONFIGS:
-        print(f"   - {n}×{d}")
-    print("="*90)
+        print(f"   - {n}×{d} (NQ={n})")
+    print("="*100)
     
-    total_tests = len(DIMENSION_CONFIGS) * 3
+    total_tests = len(DIMENSION_CONFIGS) * 6  # 3 versioni × 2 varianti
     current = 0
     
     for (n, d) in DIMENSION_CONFIGS:
         key = (n, d)
         results[key] = {}
         
-        # NQ = N (usa lo stesso numero di query del dataset)
-        nq = n
-        results[key]["nq"] = nq
-        
+        nq = n  # Usa stesso numero di query
         label = format_dim(n, d)
         
-        print(f"\n{'='*70}")
-        print(f"DATASET SIZE: {n:,} × {d}")
-        print(f"{'='*70}")
-        
-        # Genera query
-        print(f"  Generazione query ({nq}×{d})...")
-        try:
-            query_32 = generate_dataset(nq, d, 'float32', 16)
-            query_64 = generate_dataset(nq, d, 'float64', 32)
-            print(f"    Query 32-bit: {query_32.shape}, aligned={query_32.ctypes.data % 16 == 0}")
-            print(f"    Query 64-bit: {query_64.shape}, aligned={query_64.ctypes.data % 32 == 0}")
-        except MemoryError:
-            print(f"    ERRORE: Memoria insufficiente per le query!")
-            query_32 = None
-            query_64 = None
+        print(f"\n{'='*100}")
+        print(f"TESTING: {label} (N={n}, D={d}, NQ={nq})")
+        print(f"{'='*100}")
         
         # Genera dataset
-        print(f"  Creazione dataset {n:,} × {d}...")
-        try:
-            ds_32 = generate_dataset(n, d, 'float32', 16)
-            print(f"    32-bit: {ds_32.shape}, aligned={ds_32.ctypes.data % 16 == 0}")
-        except MemoryError:
-            print(f"    32-bit: OOM!")
-            ds_32 = None
-            
-        try:
-            ds_64 = generate_dataset(n, d, 'float64', 32)
-            print(f"    64-bit: {ds_64.shape}, aligned={ds_64.ctypes.data % 32 == 0}")
-        except MemoryError:
-            print(f"    64-bit: OOM!")
-            ds_64 = None
+        print(f"Generazione dataset {n}×{d}...")
+        ds_32 = generate_dataset(n, d, 'float32', 16)
+        q_32 = generate_dataset(nq, d, 'float32', 16)
+        ds_64 = generate_dataset(n, d, 'float64', 32)
+        q_64 = generate_dataset(nq, d, 'float64', 32)
         
         # Test 32-bit
-        current += 1
-        print(f"\n  [{current}/{total_tests}] Testing 32-bit SSE...")
-        if ds_32 is not None and query_32 is not None:
-            res = run_test_32(ds_32, query_32)
-            if res:
-                print(f"    Fit: {res[0]:.4f}s, Predict: {res[1]:.4f}s, Total: {res[0]+res[1]:.4f}s")
-            results[key]["32"] = res
-        else:
-            results[key]["32"] = "SKIP"
-            print(f"    SKIP (OOM)")
+        for use_asm, variant in [(False, "C"), (True, "ASM")]:
+            current += 1
+            print(f"\n[{current}/{total_tests}] 32-bit {variant}...", end=" ", flush=True)
+            result = run_test_32(ds_32, q_32, use_asm)
+            results[key][f"32_{variant}"] = result
+            if result:
+                print(f"✓ FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
+            else:
+                print("✗ ERRORE")
         
         # Test 64-bit
-        current += 1
-        print(f"\n  [{current}/{total_tests}] Testing 64-bit AVX...")
-        if ds_64 is not None and query_64 is not None:
-            res = run_test_64(ds_64, query_64)
-            if res:
-                print(f"    Fit: {res[0]:.4f}s, Predict: {res[1]:.4f}s, Total: {res[0]+res[1]:.4f}s")
-            results[key]["64"] = res
-        else:
-            results[key]["64"] = "SKIP"
-            print(f"    SKIP (OOM)")
+        for use_asm, variant in [(False, "C"), (True, "ASM")]:
+            current += 1
+            print(f"[{current}/{total_tests}] 64-bit {variant}...", end=" ", flush=True)
+            result = run_test_64(ds_64, q_64, use_asm)
+            results[key][f"64_{variant}"] = result
+            if result:
+                print(f"✓ FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
+            else:
+                print("✗ ERRORE")
         
         # Test 64-bit OpenMP
-        current += 1
-        print(f"\n  [{current}/{total_tests}] Testing 64-bit AVX + OpenMP...")
-        if ds_64 is not None and query_64 is not None:
-            res = run_test_64omp(ds_64, query_64)
-            if res:
-                print(f"    Fit: {res[0]:.4f}s, Predict: {res[1]:.4f}s, Total: {res[0]+res[1]:.4f}s")
-            results[key]["64omp"] = res
-        else:
-            results[key]["64omp"] = "SKIP"
-            print(f"    SKIP (OOM)")
-        
-        # Libera memoria
-        del ds_32, ds_64, query_32, query_64
-        import gc
-        gc.collect()
+        for use_asm, variant in [(False, "C"), (True, "ASM")]:
+            current += 1
+            print(f"[{current}/{total_tests}] 64omp {variant}...", end=" ", flush=True)
+            result = run_test_64omp(ds_64, q_64, use_asm)
+            results[key][f"64omp_{variant}"] = result
+            if result:
+                print(f"✓ FIT={result[0]:.2f}s PRD={result[1]:.2f}s")
+            else:
+                print("✗ ERRORE")
     
-    # Stampa tabella finale
+    # Stampa risultati
     print_table()
     
-    # Salva su file
-    import io
-    from contextlib import redirect_stdout
-    
-    buffer = io.StringIO()
-    with redirect_stdout(buffer):
-        print_table()
-    
-    with open("benchmark_dimensioni_results.txt", "w") as f:
-        f.write(buffer.getvalue())
-    
-    print(f"\nRisultati salvati in: benchmark_dimensioni_results.txt")
+    print("\n✅ Benchmark completato!")
 
 if __name__ == "__main__":
     main()
