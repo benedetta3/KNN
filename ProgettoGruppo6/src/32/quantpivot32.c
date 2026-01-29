@@ -101,7 +101,7 @@ static inline type compute_lower_bound_sel(const type* idx_v, const type* qpivot
 
 // Allocazione memoria con controllo errori
 static inline void* checked_alloc(size_t size) {
-    void* p = malloc(size);
+    void* p = _mm_malloc(size, 32);  // Aligned allocation for better SIMD performance
     if (!p) {
         printf("ERRORE: impossibile allocare %lu bytes\n", (unsigned long)size);
         fflush(stdout);

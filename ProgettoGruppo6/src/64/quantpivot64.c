@@ -86,7 +86,7 @@ typedef struct {
 } MaxHeap;
 
 static inline void heap_init(MaxHeap* h, int k) {
-    h->heap = (neighbor*)malloc(k * sizeof(neighbor));
+    h->heap = (neighbor*)_mm_malloc(k * sizeof(neighbor), 32);
     h->size = 0;
     h->capacity = k;
     for(int i = 0; i < k; i++) {
@@ -96,7 +96,7 @@ static inline void heap_init(MaxHeap* h, int k) {
 }
 
 static inline void heap_free(MaxHeap* h) {
-    free(h->heap);
+    _mm_free(h->heap);
 }
 
 static inline void heap_swap(neighbor* a, neighbor* b) {
@@ -259,13 +259,13 @@ static inline void quantize_vector_scratch(const type* v,
 
 // Versione originale per compatibilità (usata in fit)
 void quantize_vector(type* v, type* vplus, type* vminus, int x, int D) {
-    int* indices = (int*)malloc(D * sizeof(int));
+    int* indices = (int*)_mm_malloc(D * sizeof(int), 32);
     type* abs_vals = (type*)_mm_malloc(D * sizeof(type), align);
     
     quantize_vector_scratch(v, vplus, vminus, x, D, indices, abs_vals);
     
     _mm_free(abs_vals);
-    free(indices);
+    _mm_free(indices);
 }
 
 // ==============================
@@ -555,8 +555,8 @@ void predict(params* input) {
     // STRUTTURA K-NN LINEARE (identica al prof)
     // ============================================================
     
-    neighbor* knn = (neighbor*)malloc(k * sizeof(neighbor));
-    type* qpivot = (type*)malloc(h * sizeof(type));
+    neighbor* knn = (neighbor*)_mm_malloc(k * sizeof(neighbor), 32);
+    type* qpivot = (type*)_mm_malloc(h * sizeof(type), 32);
 
     // ============================================================
     // LOOP QUERY
@@ -722,8 +722,8 @@ void predict(params* input) {
     }
 
     // Cleanup
-    free(qpivot);
-    free(knn);
+    _mm_free(qpivot);
+    _mm_free(knn);
     _mm_free(q_plus);
     _mm_free(q_minus);
     _mm_free(pivot_plus);

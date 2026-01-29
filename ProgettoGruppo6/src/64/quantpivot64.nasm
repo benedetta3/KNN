@@ -68,40 +68,26 @@ approx_distance_asm:
     vfmadd231pd ymm3, ymm5, ymm6    ; FMA Block 2
 
     ; ==== BLOCCO 3 (8-11) ====
-    vmovupd ymm4, [rdi + 64]
-    vmovupd ymm5, [rsi + 64]
-    vmovupd ymm6, [rdx + 64]
-    vmovupd ymm7, [rcx + 64]
+    vmovapd ymm4, [rdi + 64]
+    vmovapd ymm5, [rsi + 64]
+    vmovapd ymm6, [rdx + 64]
+    vmovapd ymm7, [rcx + 64]
 
-    vmulpd  ymm8, ymm4, ymm6
-    vaddpd  ymm0, ymm0, ymm8
-
-    vmulpd  ymm8, ymm5, ymm7
-    vaddpd  ymm1, ymm1, ymm8
-
-    vmulpd  ymm8, ymm4, ymm7
-    vaddpd  ymm2, ymm2, ymm8
-
-    vmulpd  ymm8, ymm5, ymm6
-    vaddpd  ymm3, ymm3, ymm8
+    vfmadd231pd ymm0, ymm4, ymm6    ; FMA Block 3
+    vfmadd231pd ymm1, ymm5, ymm7    ; FMA Block 3
+    vfmadd231pd ymm2, ymm4, ymm7    ; FMA Block 3
+    vfmadd231pd ymm3, ymm5, ymm6    ; FMA Block 3
 
     ; ==== BLOCCO 4 (12-15) ====
-    vmovupd ymm4, [rdi + 96]
-    vmovupd ymm5, [rsi + 96]
-    vmovupd ymm6, [rdx + 96]
-    vmovupd ymm7, [rcx + 96]
+    vmovapd ymm4, [rdi + 96]
+    vmovapd ymm5, [rsi + 96]
+    vmovapd ymm6, [rdx + 96]
+    vmovapd ymm7, [rcx + 96]
 
-    vmulpd  ymm8, ymm4, ymm6
-    vaddpd  ymm0, ymm0, ymm8
-
-    vmulpd  ymm8, ymm5, ymm7
-    vaddpd  ymm1, ymm1, ymm8
-
-    vmulpd  ymm8, ymm4, ymm7
-    vaddpd  ymm2, ymm2, ymm8
-
-    vmulpd  ymm8, ymm5, ymm6
-    vaddpd  ymm3, ymm3, ymm8
+    vfmadd231pd ymm0, ymm4, ymm6    ; FMA Block 4
+    vfmadd231pd ymm1, ymm5, ymm7    ; FMA Block 4
+    vfmadd231pd ymm2, ymm4, ymm7    ; FMA Block 4
+    vfmadd231pd ymm3, ymm5, ymm6    ; FMA Block 4
 
     ; Avanza 16 double = 128 byte
     add rdi, 128
@@ -173,10 +159,10 @@ approx_distance_asm:
     jz .check1
 
 .main_loop4:
-    vmovupd ymm4, [rdi]
-    vmovupd ymm5, [rsi]
-    vmovupd ymm6, [rdx]
-    vmovupd ymm7, [rcx]
+    vmovapd ymm4, [rdi]
+    vmovapd ymm5, [rsi]
+    vmovapd ymm6, [rdx]
+    vmovapd ymm7, [rcx]
 
     vmulpd ymm8, ymm4, ymm6
     vaddpd ymm0, ymm0, ymm8

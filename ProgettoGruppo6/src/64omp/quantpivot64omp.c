@@ -407,8 +407,8 @@ void predict(params* input) {
     #pragma omp parallel
     {
         // Thread-local structures
-        neighbor* knn = (neighbor*)malloc(k * sizeof(neighbor));
-        type* qpivot = (type*)malloc(h * sizeof(type));
+        neighbor* knn = (neighbor*)_mm_malloc(k * sizeof(neighbor), 32);
+        type* qpivot = (type*)_mm_malloc(h * sizeof(type), 32);
         
         if (!knn || !qpivot) {
             printf("ERRORE: alloc knn/qpivot (thread %d)\n", omp_get_thread_num());
@@ -550,8 +550,8 @@ void predict(params* input) {
             }
         }
 
-        free(qpivot);
-        free(knn);
+        _mm_free(qpivot);
+        _mm_free(knn);
         
     } // fine parallel
 

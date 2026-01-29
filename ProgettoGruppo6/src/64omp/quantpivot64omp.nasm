@@ -15,8 +15,8 @@ global compute_lower_bound_asm
 ;
 ; OTTIMIZZAZIONI AVX:
 ;   - Unrolling x4 (16 double/iterazione)
-;   - VMOVUPD per sicurezza
-;   - Prefetching aggressivo
+;   - VMOVAPD per dati allineati + FMA per massime prestazioni
+;   - Prefetching ottimizzato (256 byte)
 ;   - Thread-safe per OpenMP
 ; ============================================================
 
@@ -36,28 +36,18 @@ approx_distance_asm:
     jz .check8
 
 .main_loop16:
-    prefetchnta [rdi + 512]
-    prefetchnta [rsi + 512]
-    prefetchnta [rdx + 512]
-    prefetchnta [rcx + 512]
+    prefetchnta [rdi + 256]
 
     ; BLOCCO 1
-    vmovupd ymm4, [rdi]
-    vmovupd ymm5, [rsi]
-    vmovupd ymm6, [rdx]
-    vmovupd ymm7, [rcx]
+    vmovapd ymm4, [rdi]
+    vmovapd ymm5, [rsi]
+    vmovapd ymm6, [rdx]
+    vmovapd ymm7, [rcx]
 
-    vmulpd  ymm8, ymm4, ymm6
-    vaddpd  ymm0, ymm0, ymm8
-
-    vmulpd  ymm8, ymm5, ymm7
-    vaddpd  ymm1, ymm1, ymm8
-
-    vmulpd  ymm8, ymm4, ymm7
-    vaddpd  ymm2, ymm2, ymm8
-
-    vmulpd  ymm8, ymm5, ymm6
-    vaddpd  ymm3, ymm3, ymm8
+    vfmadd231pd ymm0, ymm4, ymm6    ; FMA OMP Block 1
+    vfmadd231pd ymm1, ymm5, ymm7    ; FMA OMP Block 1
+    vfmadd231pd ymm2, ymm4, ymm7    ; FMA OMP Block 1
+    vfmadd231pd ymm3, ymm5, ymm6    ; FMA OMP Block 1
 
     ; BLOCCO 2
     vmovupd ymm4, [rdi + 32]
