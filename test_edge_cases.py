@@ -164,7 +164,7 @@ def main():
     print(f"Success rate: {100*passed/(passed+failed):.1f}%")
     
     if failed == 0:
-        print("\n TUTTI I TEST PASSATI! Codice production-ready! 🎉")
+        print("\n TUTTI I TEST PASSATI! Codice production-ready!")
         return 0
     else:
         print(f"\n  {failed} test falliti - richiede debugging")
