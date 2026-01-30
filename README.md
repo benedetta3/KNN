@@ -2,21 +2,6 @@
 
 **Progetto Gruppo 6** - Architetture Avanzate dei Sistemi di Elaborazione
 
----
-
-## Indice
-
-1. [Obiettivo del Progetto](#obiettivo-del-progetto)
-2. [Setup e Dipendenze](#setup-e-dipendenze)
-3. [Compilazione del Progetto](#compilazione-del-progetto)
-4. [Esecuzione dei Test](#esecuzione-dei-test)
-5. [Architettura e Implementazione](#architettura-e-implementazione)
-6. [Ottimizzazioni Assembly](#ottimizzazioni-assembly)
-7. [Risultati e Performance](#risultati-e-performance)
-8. [Algoritmo QuantPivot](#algoritmo-quantpivot)
-
----
-
 ## Obiettivo del Progetto
 
 Implementazione ad alte prestazioni dell'algoritmo QuantPivot per k-Nearest Neighbors con confronto sistematico tra:
@@ -586,7 +571,6 @@ Speedup teorico quando C << N: significativo su dataset grandi
 
 ---
 
-## Conclusioni
 
 ### Risultati Ottenuti
 
@@ -595,22 +579,3 @@ Speedup teorico quando C << N: significativo su dataset grandi
 3. **Correttezza Garantita**: 100% test passati, risultati identici C vs Assembly
 4. **Robustezza**: Gestione corretta di tutti i casi limite (dimensioni dispari, prime, etc.)
 5. **Scalabilità**: OpenMP fornisce eccellente parallelizzazione multi-core
-
-### Lesson Learned
-
-1. **Assembly Moderno**: Ancora rilevante quando compilatore non ottimizza
-2. **SIMD Manual vs Auto-vectorization**: Compilatori moderni competitivi con `-O3`
-3. **Trade-off**: Assembly offre controllo ma richiede più manutenzione
-4. **Memory Bandwidth**: Fattore limitante indipendente da ottimizzazioni CPU
-5. **Testing Essenziale**: Verifica correttezza critica per ottimizzazioni low-level
-
-### Riferimenti Tecnici
-
-- Intel Intrinsics Guide: https://software.intel.com/sites/landingpage/IntrinsicsGuide/
-- AMD64 Architecture Reference Manual
-- Intel 64 and IA-32 Architectures Optimization Reference Manual
-- NASM Documentation: https://www.nasm.us/docs.php
-
----
-
-**Nota**: Questo progetto è stato sviluppato per scopi didattici nell'ambito del corso di Architetture Avanzate dei Sistemi di Elaborazione. Il codice è fornito as-is per dimostrazione di tecniche di ottimizzazione Assembly SIMD.
