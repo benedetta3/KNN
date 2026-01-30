@@ -309,7 +309,19 @@ def main():
     # Stampa risultati
     print_table()
     
+    # Salva risultati su file
+    import io
+    from contextlib import redirect_stdout
+    
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        print_table()
+    
+    with open("benchmark_dimensioni_results.txt", "w") as f:
+        f.write(buffer.getvalue())
+    
     print("\nBenchmark completato!")
+    print("Risultati salvati in: benchmark_dimensioni_results.txt")
 
 if __name__ == "__main__":
     main()
