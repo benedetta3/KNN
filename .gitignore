@@ -1,40 +1,34 @@
-# Build artifacts
-build/
-__pycache__/
-*.pyc
-*.pyo
-*.so
-*.o
-
-# Virtual environments
+# Virtual Environment
 venv/
 env/
-.venv/
-
-# Dataset files (binary, usually large)
-*.ds2
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Jupyter notebook checkpoints
-.ipynb_checkpoints/
+ENV/
+*.pyc
 
 # Python cache
-.pytest_cache/
+__pycache__/
+*.py[cod]
+*$py.class
 
-# Results files
-benchmark_results.txt
-benchmark_dimensioni_results.txt
-*NN_*_size-*
+# Build artifacts
+*.o
+*.so
+build/
+dist/
+*.egg-info/
 
-# Temporary files
-*.tmp
-*.temp
+# File generati da esecuzione test
+distNN_*
+idNN_*
+
+# Altri file temporanei
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+.idea/
+
+# Backup
+*.bak
+*_OLD.md
+README_OLD.md
